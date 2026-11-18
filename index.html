@@ -1242,6 +1242,16 @@ details.morefold:not([open]) { padding-bottom: 0 !important; }
 .bookride .brtimes li.mine { background: color-mix(in srgb, var(--lc) 14%, transparent); } .bookride .brtimes li em { font-style: normal; font-weight: 700; font-size: .8rem; color: var(--lc); }
 .bookride .brsrc, .bookride .brsmall, .bookride .brnote { font-size: .82rem; margin: 0; }
 .bookride .brbook { justify-self: start; background: var(--lc); border-color: var(--lc); color: var(--card); text-decoration: none; min-height: 44px; display: inline-flex; align-items: center; gap: 6px; }
+/* Book ahead: the ticket row under a stop (tickets.js). Route green, not orange: it is a tool, not the page's main action. */
+.tixrow { margin-top: 6px; display: grid; gap: 4px; max-width: 560px; }
+.tixrow .tixtop { display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; }
+.tixrow .tixbook { padding: 6px 12px; min-height: 38px; font-size: .9rem; white-space: nowrap; }
+.tixrow .tixbook.find { background: transparent; color: var(--route); border: 1px solid var(--route); }
+.tixrow .tixdone { min-height: 38px; padding: 6px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); color: var(--ink); font: inherit; font-size: .9rem; font-weight: 700; cursor: pointer; white-space: nowrap; }
+.tixrow .tixdone::before { content: "☐ "; } .tixrow.done .tixdone::before { content: ""; }
+.tixrow.done .tixbook { background: transparent; color: var(--route); border: 1px solid var(--line); }
+.tixrow .badge.tixok { color: var(--route); background: var(--route-soft); }
+.tixrow .tixsmall { font-size: .82rem; margin: 0; }
 .esimcard { gap: 8px; border-left: 4px solid var(--route); }
 .esimcard.ok .offico { background: var(--route); color: var(--card); }
 .esimtag { display: flex; gap: 6px; align-items: center; font-size: .85rem; color: var(--muted); flex-wrap: wrap; }
@@ -1587,14 +1597,16 @@ if (typeof module !== "undefined") module.exports = KEngine;
         // Closed for good only when the map shows no opening hours: hours mapped today mean people go in.
         if (f.closedForGood && !f.hours) s.closedForGood = true;
         if (f.hours && !s.hours) s.hours = f.hours;
+        // The official website, where the sight's own tickets are sold (the Book tickets link starts from it).
+        if (f.web && !s.web) s.web = f.web;
       }
       // A thin guide (under 8 sights): the travel guide's own sights for the place join it, unless already there (same
       // name, or within 150 m) or closed for good.
       if ((city.sites || []).length < 8 && (P.guideSights || []).length) {
         const key = n => String(n || "").toLowerCase().normalize("NFKD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, " ").trim();
         const more = P.guideSights.filter(x => !x.closedForGood && isFinite(x.lat) && !(city.sites || []).some(s => key(s.name) === key(x.name) || (isFinite(s.lat) && E.hav(s, x) <= 0.15)))
-          .map((x, n) => ({ id: "wv~" + (x.wikidata || key(x.name).replace(/ /g, "-")), name: x.name, lat: x.lat, lng: x.lng, minutes: /museum|museo|musée|museu|muzeum|galler/i.test(x.name) ? 60 : 30,
-            editions: x.editions || 0, unesco: !!x.unesco, tags: ["from-guide"], category: "Sight", fromGuide: true, blurb: x.note || "" })).filter((x, i, a) => a.findIndex(y => y.id === x.id) === i);
+          .map((x, n) => Object.assign({ id: "wv~" + (x.wikidata || key(x.name).replace(/ /g, "-")), name: x.name, lat: x.lat, lng: x.lng, minutes: /museum|museo|musée|museu|muzeum|galler/i.test(x.name) ? 60 : 30,
+            editions: x.editions || 0, unesco: !!x.unesco, tags: ["from-guide"], category: "Sight", fromGuide: true, blurb: x.note || "" }, x.web ? { web: x.web } : {})).filter((x, i, a) => a.findIndex(y => y.id === x.id) === i);
         if (more.length) city.sites = (city.sites || []).concat(more);
       }
       const added = [];
@@ -2807,7 +2819,7 @@ const SAMPLE_CITY = {
     ]
   },
   sites: [
-    { id: "sagrada", name: "Sagrada Família", lat: 41.4036, lng: 2.1744, minutes: 90, kind: "touristy", mustSee: true, category: "Basilica",
+    { id: "sagrada", web: "https://sagradafamilia.org/en/", name: "Sagrada Família", lat: 41.4036, lng: 2.1744, minutes: 90, kind: "touristy", mustSee: true, category: "Basilica",
       summary: "Gaudí's unfinished basilica, under construction since 1882.",
       guide: "You are standing in front of the most famous building site in the world. Antoni Gaudí took over this church in 1883 and spent the last forty years of his life on it, knowing he would never see it finished. He planned eighteen spires: twelve for the apostles, four for the evangelists, one for Mary and the tallest, for Jesus, which at 172 meters is meant to stay just below the height of Montjuïc hill, because Gaudí felt his work should not rise above God's. Start with the Nativity façade, the one Gaudí finished himself. It faces the sunrise and is crowded with life: turtles carry the columns, birds and plants climb the stone, and the story of Christ's birth unfolds in the middle. Then walk around to the Passion façade, carved decades later by Josep Maria Subirachs, all hard angles and bare bone. Inside, the columns branch like trees, and the stained glass turns the nave blue and green on the east side and orange and red on the west as the sun moves.",
       lookFor: ["The turtle and tortoise carrying columns at the base of the Nativity façade: one from the land, one from the sea.", "The magic square on the Passion façade, where every row adds up to 33, Christ's age at his death.", "Stand in the middle of the nave and look straight up at the ceiling, where the tree columns open into a canopy of light."],
@@ -3782,7 +3794,7 @@ const CITY_ROME = {
       photoTip: "From the obelisk in the square, frame the façade between Bernini's columns.",
       hours: "7:00–19:00 (shorter in winter)", tickets: "Free; dome climb about €10. Security line can be long. Cover shoulders and knees.", crowds: "Lines peak 10:00–13:00; go early.", cost: 0, indoor: true, access: "Step-free basilica; the dome is 320+ steps after the lift.",
       picks: [{ k: "spot", t: "Climb the dome: the lift takes you halfway, then narrow stairs to the top for all of Rome." }, { k: "timing", t: "Take the early train and walk from Roma San Pietro station; you'll be in St Peter's within 10 minutes." }, { k: "story", t: "The scavi tour (book months ahead) goes under the basilica to what's believed to be Peter's tomb." }] },
-    { id: "colosseum", name: "Colosseum and Roman Forum", lat: 41.8902, lng: 12.4922, minutes: 120, kind: "touristy", mustSee: true, category: "Ancient site",
+    { id: "colosseum", web: "https://colosseo.it/en/", name: "Colosseum and Roman Forum", lat: 41.8902, lng: 12.4922, minutes: 120, kind: "touristy", mustSee: true, category: "Ancient site",
       summary: "The great arena and the heart of ancient Rome.",
       guide: "The Colosseum opened in AD 80 and held 50,000 people for gladiator fights and animal hunts. It was built by the emperor Vespasian, whose son Titus destroyed Jerusalem in AD 70; tradition says Jewish captives helped build it. Next door, walk down into the Roman Forum, the political heart of the empire. Under the Arch of Titus, you can see a carving of Roman soldiers carrying the menorah from the Temple in Jerusalem. Nearby is the Mamertine Prison, where tradition says Peter and Paul were held before their deaths.",
       lookFor: ["The menorah carved inside the Arch of Titus.", "The underground passages beneath the arena floor.", "The Mamertine Prison at the edge of the Forum."],
@@ -4262,7 +4274,7 @@ const NOT_WORSHIP_KIND = /food|caf[eé]|restaurant|taverna|\bbar\b|chocolat|bake
 const isReligious = x => { if (!x) return false; const c = x.category || "", t = c + " " + (x.name || "");
   if (/ancient|ruin|archaeolog/i.test(t) || !RELIGIOUS_RE.test(t)) return false;
   // "Holy" in a fort's or palace's name (Fort of the Holy Saviour) doesn't make it a place of worship.
-  if (NOT_WORSHIP_KIND.test(c) && !WORSHIP_RE.test(t.replace(/\bholy\b/gi, " "))) return false;
+  if ((NOT_WORSHIP_KIND.test(c) || /^(fort|fortress|castle|palace|tower|citadel|gallery|museum|gate|bridge)\b/i.test(x.name || "")) && !WORSHIP_RE.test(t.replace(/\bholy\b/gi, " "))) return false;
   return WORSHIP_RE.test(t) || !NOT_WORSHIP_KIND.test(c); };
 const skipReligious = () => P().religious === "off";
 // The "Churches & faith" interest: off once the traveler turns it off (noChurches), or when they chose
@@ -6537,7 +6549,7 @@ function cleanCity(c, dest) {
   const okLL = p => p && isFinite(num(p.lat)) && isFinite(num(p.lng)) && !!siteName(p.name);
   const site = normSite;
   const starts = {};
-  for (const k of ["cruise", "airport", "station", "hotel", "point"]) starts[k] = ((c.starts && c.starts[k]) || []).filter(okLL).map(p => ({ name: String(p.name), lat: num(p.lat), lng: num(p.lng), note: p.note ? String(p.note) : "" }));
+  for (const k of ["cruise", "airport", "station", "hotel", "point"]) starts[k] = ((c.starts && c.starts[k]) || []).filter(okLL).map(p => ({ name: (k !== "hotel" && enNameOf(String(p.name))) || String(p.name), lat: num(p.lat), lng: num(p.lng), note: p.note ? String(p.note) : "" }));
   return {
     city: String(c.city || dest), country: String(c.country || ""), ai: true, verified: c.verified || 0, grounded: !!c.grounded, gv: String(c.gv || ""), eatsV: +c.eatsV || 0, farFillV: +c.farFillV || 0, startsOk: c.startsOk === true ? 1 : +c.startsOk || 0, starts,
     sites: (c.sites || []).filter(okLL).map((s, i) => site(s, i)),
@@ -6932,10 +6944,11 @@ function fameMark(city, src) {
       // Crete" is not the "Historical Museum of Crete", and a museum 200 m away is another museum.
       const bare = x => ({ name: x.name || "", lat: x.lat, lng: x.lng, category: x.category || x.kind || "" });
       const sure = placeRel(Object.assign(bare(s), { name: nm0 }), bare(hit)) === "same";
-      if (sure) { if (hit.local) s.local = hit.local; if (hit.wd) s.wd = hit.wd; } else { delete s.local; delete s.wd; }
-      // A lesser sight the guide named in the local language ("Santissima Annunziata dei Catalani") is shown in English.
-      const en = sure && !s.srcName && (hit.sl || 0) < EN_FAME && enNameOf(s.name, s.category, s.local || hit.local);
-      if (en) { s.srcName = s.name; s.local = s.local || s.name; s.name = en; } }
+      if (sure) { if (hit.local) s.local = hit.local; if (hit.wd) s.wd = hit.wd; } else { delete s.wd; if (s.srcName) s.local = s.srcName; else delete s.local; }
+    }
+    // A lesser sight the guide named in the local language ("Chiesa di Montevergine", "Fontana Senatoria") is shown in
+    // English, its local name beneath. Famous ones (by the sources) keep the name English speakers know.
+    if (!s.srcName && (s.fame || 0) < EN_FAME) { const en = enNameOf(s.name, s.category, s.local); if (en) { s.srcName = s.name; s.local = s.local || s.name; s.name = en; } }
   }
   famousRepair(city, src);
   sourceSights(city, src);
@@ -6982,6 +6995,10 @@ function famousRepair(city, src) {
 // the same as if the sources had been there from the start; the trim then keeps it.
 function leadLate(city) {
   if (typeof trip === "undefined" || !trip || !trip.days) return;
+  // Once the traveler has changed any day in this city (ticked, unticked, swapped, hearted), the app no longer hands
+  // out a day trip on its own: one they swapped off a day would come back on another, and only on a page opened after
+  // the sources arrived, so two screens of the same trip showed different days (Nov 18 gate, Ancient Corinth).
+  if (trip.days.some(o => cityFor(o) === city && (o.ready || o.ownList || (o.mine || []).length))) return;
   for (const o of trip.days) {
     if (!Array.isArray(o.selected) || !o.selected.length || cityFor(o) !== city || (o.type !== "port" && o.type !== "land")) continue;
     if (o.ready || o.ownList || (o.mine || []).length || (o.wants || []).length || noShore(o) || !o.seedSig || o.seedSig !== seedSigOf(o)) continue;
@@ -10862,7 +10879,7 @@ ${quietOn(s) ? `<p class="banner quiet" role="note">🤫 <span><b>Quiet place.</
       ${s.hours || s.tickets || s.crowds || s.priceNote || s.web ? `<div class="before"><span class="eyebrow">Before you go</span>
         ${txt(s.hours) && txt(hoursText(s.hours)) ? `<div><b>Hours</b><span>${esc(hoursText(s.hours))}${txt(s.closed) ? " · " + esc(s.closed) : ""}</span></div>` : ""}
         ${s.priceNote ? `<div><b>Price</b><span>${esc(s.priceNote)}</span></div>` : ""}
-        ${s.tickets ? `<div><b>Tickets</b><span>${esc(s.tickets)}</span></div>` : ""}
+        ${s.tickets ? `<div><b>Tickets</b><span>${esc(s.tickets)}${bookAhead(s) ? (L => L ? ` <a href="${esc(L.url)}" target="_blank" rel="noopener">${esc(L.label)} ↗</a>` : "")(tixFor(s, day())) : ""}</span></div>` : ""}
         ${s.crowds ? `<div><b>Crowds</b><span>${esc(s.crowds)}</span></div>` : ""}
         ${s.access && P().access !== "none" ? `<div><b>Access</b><span>${esc(s.access)}</span></div>` : ""}
         ${s.web ? `<div><b>Website</b><span><a href="${esc(s.web)}" target="_blank" rel="noopener">Official site ↗</a></span></div>` : ""}
@@ -11339,6 +11356,7 @@ document.addEventListener("click", e => {
   if (act === "closedmove") { moveClosed(t.dataset.id, +t.dataset.to); return; }
   if (act === "closedswap") { swapClosed(t.dataset.id, t.dataset.alt); return; }
   if (liveAct(act, t)) return;
+  if (tixAct(act, t)) return;
   if (shipClick(t)) return;
   if (act === "cdpreview") {
     if (cdPreview != null) { cdPreview = null; if (day().live && day().live.preview) day().live = null; render(); return; }
@@ -12065,6 +12083,7 @@ const EN_FAME = 30;
 const EN_PHRASE = [
   [/\bquattro fontane\b/i, "Four Fountains"], [/\bsantissima annunziata\b/i, "Most Holy Annunciation"], [/\bsantissimo salvatore\b/i, "Holy Saviour"],
   [/\bsanti(ssima|sima) trinit[àa]d?(?=\s|$|[,)])/i, "Holy Trinity"], [/\bsant[ií]simo sacramento\b/i, "Blessed Sacrament"], [/\bsantissimo sacramento\b/i, "Blessed Sacrament"],
+  [/\b(porto di|puerto de|porto de|port de)\b/i, "Port of"], [/\bstazione marittima\b/i, "Cruise Terminal"], [/\bestaci[oó]n mar[ií]tima\b/i, "Cruise Terminal"], [/\bgare maritime\b/i, "Cruise Terminal"],
   [/\bmonte di piet[àa](?=\s|$|[,)])/i, "Mount of Piety"], [/\bmonte de piedad\b/i, "Mount of Piety"], [/\bcristo re\b/i, "Christ the King"], [/\bcristo rey\b/i, "Christ the King"], [/\bsacro cuore\b/i, "Sacred Heart"], [/\bsagrado coraz[oó]n\b/i, "Sacred Heart"],
   [/\bsagrado cora[çc][ãa]o\b/i, "Sacred Heart"], [/\b(madonna|nostra signora|nuestra se[ñn]ora|nossa senhora|mare de d[ée]u)\b/i, "Our Lady"],
   [/\b(santa|sainte|santa) croce\b/i, "Holy Cross"], [/\bsanta cruz\b/i, "Holy Cross"], [/\bspirito santo\b/i, "Holy Spirit"], [/\besp[ií]ritu santo\b/i, "Holy Spirit"]
@@ -12127,7 +12146,7 @@ const EN_WORD = { cultura: "Culture", culture: "Culture", lettera: "the Letter",
   angeli: "the Angels", ángeles: "the Angels", anges: "the Angels", santi: "the Saints", martiri: "the Martyrs", mártires: "the Martyrs", vergine: "the Virgin", virgen: "the Virgin",
   rosario: "the Rosary", lavoro: "Labour", indipendenza: "Independence", independencia: "Independence", libertà: "Freedom", libertad: "Freedom", liberté: "Freedom",
   cattedrale: "the Cathedral", duomo: "the Cathedral", catedral: "the Cathedral", porto: "the Port", puerto: "the Port", port: "the Port", mercanti: "the Merchants", mercaderes: "the Merchants",
-  re: "the King", rey: "the King", roi: "the King", regina: "the Queen", reina: "the Queen", reine: "the Queen", catalani: "the Catalans", catalanes: "the Catalans", cancelleria: "the Chancellery", cancillería: "the Chancellery" };
+  re: "the King", rey: "the King", roi: "the King", regina: "the Queen", reina: "the Queen", reine: "the Queen", catalani: "the Catalans", catalanes: "the Catalans", cancelleria: "the Chancellery", cancillería: "the Chancellery", nettuno: "Neptune", neptuno: "Neptune", orione: "Orion", ercole: "Hercules", hércules: "Hercules", nereidi: "the Nereids", tritone: "Triton", tritoni: "the Tritons" };
 // "of" words: those that carry "the" and those that don't.
 const EN_OF_THE = /^(del|dello|della|dell'|dei|degli|delle|de la|de las|de los|du|des|de l'|do|da|dos|das|dels|de les)$/i;
 const EN_OF = /^(di|d'|de)$/i;
@@ -12167,6 +12186,16 @@ function enNameOf(name, cat, local) {
     else if (EN_OF_THE.test(rest[0])) { lead = "of the"; rest = rest.slice(1); }
     else if (EN_OF.test(rest[0])) { lead = "of"; rest = rest.slice(1); }
     if (!rest.length) return null;
+    // "della Our Lady di Montalto", "della Most Holy Annunciation dei Catalani": each "of" part on its own.
+    const inner = rest.findIndex((t, j) => j > 0 && (EN_OF.test(t) || EN_OF_THE.test(t)));
+    if (lead && inner > 0 && !EN_SAINT.test(rest[0])) {   // "di Santa Maria della Valle" is one saint's name
+      const a = ofObj(lead, rest.slice(0, inner)), b = ofPart(rest.slice(inner));
+      if (a === null || b === null || (b && !b.startsWith("of "))) return null;
+      return a + (b ? " " + b : "");
+    }
+    return ofObj(lead, rest);
+  };
+  const ofObj = (lead, rest) => {
     // One common word: "della Cultura" is "of Culture", "della Lettera" "of the Letter".
     if (lead && rest.length === 1 && EN_WORD[rest[0].toLowerCase()]) return "of " + EN_WORD[rest[0].toLowerCase()];
     // A thing and its describing words: "d'Arte Moderna e Contemporanea" is "of Modern and Contemporary Art".
@@ -12178,14 +12207,14 @@ function enNameOf(name, cat, local) {
       return "of " + adj.join(" and ") + " " + EN_WORD[rest[0].toLowerCase()].replace(/^the /, "") + (more ? " " + more : "");
     }
     // A describing word or a common word of the local language left in what follows "of": not fully English.
-    if (lead && rest.some(t => !EN_SMALL.test(t) && (EN_ADJ[t.toLowerCase()] || EN_WORD[t.toLowerCase()]))) return null;
+    if (lead && rest.length > 1 && (EN_ADJ[rest[0].toLowerCase()] || EN_WORD[rest[0].toLowerCase()])) return null;
     // "of the" + a capitalized word: a thing in the local language ("de la Música", "de las Flores") unless it is
     // one the rules put into English ("del Holy Saviour"); left as it is.
     if (lead === "of the" && rest.some(t => !EN_SMALL.test(t) && !EN_WORD[t.toLowerCase()] && !EN_KNOWN.has(t.toLowerCase()))) return null;
     // Any other common word left in the name: not fully English, so leave the name as it is.
     if (rest.some(t => /^\p{Ll}/u.test(t) && !EN_SMALL.test(t) && !EN_WORD[t.toLowerCase()])) return null;
     const out = rest.map(t => EN_WORD[t.toLowerCase()] && /^\p{Ll}/u.test(t) ? EN_WORD[t.toLowerCase()].replace(/^the /, "") : t).join(" ").replace(/' /g, "'");
-    if (lead) return lead + " " + out;
+    if (lead) return (/^Our /.test(out) ? "of" : lead) + " " + out;   // "of Our Lady", never "of the Our Lady"
     if (EN_SAINT.test(rest[0])) return "of " + out;
     // "Pietro Castelli dell'Università": a proper name, then "of" something.
     const i = rest.findIndex((t, k) => k > 0 && (EN_OF.test(t) || EN_OF_THE.test(t)));
@@ -12200,6 +12229,7 @@ function enNameOf(name, cat, local) {
     if (r === null) return "";
     if (r && typeof r === "object") en = r.name + " " + what + " " + r.of;
     else if (!r) en = what;
+    else if (r.startsWith("of ") && head[1] === "post" && EN_SAINT.test(r.split(" ")[1] || "") && !/ of /.test(r.slice(3))) en = r.slice(3) + " " + what;   // "Mercat de Sant Antoni": Sant Antoni Market
     else if (r.startsWith("of ")) en = what + " " + r;
     else if (head[1] === "pre") en = (/^(Fort|Fortress|Castle|Tower)$/.test(head[0]) ? what + r : what + " of" + r);
     else en = r.trim() + " " + what;
@@ -12215,7 +12245,9 @@ function enNameOf(name, cat, local) {
     // its local name says it is a church (the "Santa Justa Lift" is a lift).
     en = w.join(" ").replace(/' /g, "'") + " Church";
   } else return "";
-  en = enCap(en.replace(/\s+/g, " ").replace(/' /g, "'").trim()) + tail;
+  en = enCap(en.replace(/\s+/g, " ").replace(/' /g, "'").trim());
+  if (tail && keyOf(tail).includes(keyOf(en))) return "";   // "Stazione Marittima (Naples cruise terminal)" already says it
+  en += tail;
   return keyOf(en) === keyOf(raw) ? "" : en;
 }
 // A sight from the sources gets its English name; its local name is kept for the signs. Famous places keep theirs.
@@ -12430,9 +12462,19 @@ function otherDays(label) {
   const F = fitState; if (!F.others.length) return "";
   return `<div class="fitmore"><p class="lbl">${esc(label)}</p><div class="actions">${F.others.map(o => `<button type="button" class="btn ${F.dayFirst ? "" : "ghost "}small" data-act="fitday" data-fitday="${trip.days.indexOf(o)}">Add it to ${esc(fmtDow(o.date))} ${esc(fmtDate(o.date))}</button>`).join("")}</div></div>`;
 }
+// One sight, one day: a sight that comes onto this day through the won't-fit box (a swap, a new time, another day)
+// comes off the day it was planned on, as a plain tick does (addPick). Left on both, a fresh page plans it on
+// whichever day it reaches first, so the same trip showed different stops on a second screen (Nov 18 gate).
+function takeFromOtherDay(d, id) {
+  const from = id && plannedElsewhere(d)[id]; if (!from) return;
+  from.selected = from.selected.filter(x => x !== id); markMine(from, id, false); if (from.anchor === id) from.anchor = null;
+  const c = cityFor(d), sx = c && allSites(c).find(x => x.id === id);
+  movedNote = (sx ? sx.name : "That sight") + " moved here from " + fmtDow(from.date) + " " + fmtDate(from.date) + "."; d.movedIn = { ...(d.movedIn || {}), [id]: from.date };
+}
 function fitApply(t) {
   const F = fitState; if (!F) return;
-  const d = F.d; d.selected = [...d.selected.filter(i => !F.drop.has(i)), ...(F.id ? [F.id] : [])];
+  const d = F.d; if (F.id) takeFromOtherDay(d, F.id); d.selected = [...d.selected.filter(i => !F.drop.has(i)), ...(F.id ? [F.id] : [])];
+  if (F.id || F.drop.size) { d.ownList = true; delete d.autoEmpty; delete d.cleared; } // a swap is the traveler's own change, as a tick is
   if (t) { if (t.hours != null) d.hours = t.hours; if (t.startTime) d.startTime = t.startTime; }
   if (F.s) { d.anchor = F.id; rememberPick(d, F.s); markMine(d, F.id, true); }
   fitState = null; fitShow(); save(); render(); if (F.s) jumpToAnchor();
@@ -12440,6 +12482,7 @@ function fitApply(t) {
 function fitDay(o) {
   const id = fitState && fitState.id; fitState = null; fitShow(); if (!o || !id) return;
   const c = cityFor(o); if (!o.selected && c) seedPicks(o, c);
+  if (!(o.selected || []).includes(id)) takeFromOtherDay(o, id);
   if (addPick(o, id, false)) { o.anchor = id; markMine(o, id, true); trip.active = trip.days.indexOf(o); save(); render(); jumpToAnchor(); }
 }
 function fitMove(v) {
@@ -13359,8 +13402,8 @@ function moveClosed(id, to) {
   save(); render();
 }
 
-// Under each stop on the Day plan: one compact line with today's hours, a Book ahead tag, the rush hours and the
-// traveler rating. A stop you'd reach too late gets its own warning line. Ticket details live in the Guide.
+// Under each stop on the Day plan: one compact line with today's hours, the rush hours and the
+// traveler rating, then the ticket row for a book-ahead stop. A stop you'd reach too late gets its own warning line.
 function stopLiveNotes(it, d) {
   const s = it.place, out = [], bits = [];
   if (it.ohLate) out.push(`<div class="sub livewarn">⚠ Closes at ${fmt(it.closes)}${s.oh && s.oh.last != null ? ` (last entry ${fmt(s.oh.last)})` : ""}: you'd get there too late to see it properly. Move it earlier with Change stops, or start the day earlier.</div>`);
@@ -13370,8 +13413,8 @@ function stopLiveNotes(it, d) {
     bits.push(hit.length ? `<span class="livebusy">Usually busy ${esc(spanTxt(hit))}, expect a line</span>` : `Busiest ${esc(spanTxt(s.cw.busy))}, you miss the rush`);
   }
   const r = siteRating(s); if (r) bits.push(`★ ${r.avg.toFixed(1)} from ${r.n} Kairoute travelers`);
-  const book = bookAhead(s) ? `<i class="badge book" title="${esc(String(s.tickets || s.priceNote || "").slice(0, 200))}">Book ahead</i>` : "";
-  if (book || bits.length) out.push(`<div class="sub liveinfo">${book}${bits.join(" · ")}</div>`);
+  if (bits.length) out.push(`<div class="sub liveinfo">${bits.join(" · ")}</div>`);
+  out.push(tixRow(it, d));   // Book ahead: the ticket button and Booked tick (tickets.js)
   out.push(rateRow(it, d));
   return out.join("");
 }
@@ -13380,7 +13423,7 @@ function liveChecks(d, plan, add) {
   const known = st.filter(i => i.place.oh && i.place.oh.spans.length), late = st.filter(i => i.ohLate);
   if (late.length) add("warn", `Would arrive after the last entry: ${esc(late.map(i => i.place.name + " (closes " + fmt(i.closes) + ")").join(", "))}.`);
   else if (known.length) add("ok", `Open when you get there: ${known.length} of ${st.length} stops checked against today's opening hours.`);
-  const bk = st.filter(i => bookAhead(i.place)); if (bk.length) add("warn", `Book ahead (timed tickets can sell out): ${esc(bk.map(i => i.place.name).join(", "))}.`);
+  tixCheck(d, st, add);
   const cw = st.filter(i => i.place.cw && i.place.cw.busy.length);
   if (cw.length) { const busy = cw.filter(i => i.place.cw.busy.some(([a, b]) => overlap(i.time, i.time + (i.place.minutes || 0), a, b) > 10));
     add(busy.length ? "warn" : "ok", busy.length ? `In the usual rush at ${esc(busy.map(i => i.place.name).join(", "))}; the plan couldn't fit them at a quieter time.` : `Planned outside the usual rush at all ${cw.length} stops with crowd information.`); }
@@ -14835,7 +14878,7 @@ function printDay(d, i) {
       const tag = s.along ? "On the way: " : s.bonus ? "Optional: " : "";
       const mark = s.along || s.bonus ? "+" : String(++k);
       const sub = [s.along ? "" : dur(s.minutes), s.mustSee ? "Must-see" : "", it.wait && it.opens != null ? `opens ${isFinite(it.opens) ? fmt(it.opens) : esc(it.opens)}` : ""].filter(Boolean).join(" · ");
-      return row(s.bonus || s.along ? "pstop popt" : "pstop", mark, `${it.area ? `<div class="psub"><b>${esc(areaHead(it))}</b></div>` : ""}<b>${esc(tag + (s.areaRest ? "The rest of " + s.name : s.name))}</b>${sub ? `<div class="psub">${sub}</div>` : ""}${bk ? `<div class="pbook">Book ahead: ${esc(bk)}</div>` : ""}`);
+      return row(s.bonus || s.along ? "pstop popt" : "pstop", mark, `${it.area ? `<div class="psub"><b>${esc(areaHead(it))}</b></div>` : ""}<b>${esc(tag + (s.areaRest ? "The rest of " + s.name : s.name))}</b>${sub ? `<div class="psub">${sub}</div>` : ""}${bk ? `<div class="pbook">Book ahead: ${esc(bk)}${(u => u ? ` Official tickets: ${esc(u)}` : "")(tixPrint(s, d))}${tixDone(d, s) ? " (booked)" : ""}</div>` : ""}`);
     }
     return "";
   }).join("");
@@ -15503,12 +15546,12 @@ const SRC_MAX_MAIN = 45, SRC_MAX_QUICK = 12, SRC_R = 8;
 // (Bahamas test trip, Nov 17: "The guide for Nassau didn't come through"). Nothing is ever made up either way.
 const SRC_FEW = 6;
 function srcNeed(src, centre) {
-  const two = ((src && src.stops) || []).filter(x => srcWorthy(x) && (x.src || []).length >= 2 && x.lat != null && (!centre || hav(x, centre) <= SRC_R)).length;
+  const two = ((src && src.stops) || []).filter(x => (x.src || []).length >= 2 && x.lat != null && (!centre || hav(x, centre) <= SRC_R)).length;
   return two >= SRC_FEW ? 2 : 1;
 }
 // In a small place (srcNeed 1), a sight one real source names, with its position: a travel guide's listing, a place the
 // encyclopedia knows in several languages, or a tourist place on the map; still visitable, open and a real spot.
-const srcWorthyAt = need => need >= 2 ? srcWorthy : x => x && x.lat != null && !srcShut(x) && !srcNotSpot(x)
+const srcWorthyAt = need => need >= 2 ? srcWorthy : x => x && x.lat != null && /[A-Za-z]/.test(x.name || "") && !srcShut(x) && !srcNotSpot(x)
   && (srcVisitable(x) || (x.src || []).some(t => /OpenStreetMap/.test(t)) || (x.sl || 0) >= 15);
 // Entries that are not one place to visit: a whole city or country, a district, transport, institutions.
 const SRC_NEVER = /\b(city|district|business area|ministerios|rione|quartiere|municipality|province|region|metro|subway|railway|station|airport|line|radio|embassy|bank|ministry|school|hospital|programme|organization|organisation)\b/i;
@@ -16103,6 +16146,101 @@ if (typeof window !== "undefined") window.__kairouteOff = {
     c.sites.push(tw); const n = dedupeSites(c); planGen++; dataGen++;
     return { n, kept: allSites(c).filter(x => x.id === id || x.id === tw.id).map(x => ({ id: x.id, name: x.name })) }; },
 };
+// ===================== Book a sight's tickets from the Day plan (Richard, Nov 18) =====================
+// "We need to make the book ahead actionable to book that site."
+// For every trip, not one site: any stop whose ticket notes say to book ahead (bookAhead in live.js: timed entry,
+// sells out, reservation required...) gets one ticket row on the Day plan: a button that opens the place where the
+// site's own operator sells its tickets, a "Booked" check the traveler ticks once done, and the fee rule said upfront
+// (entrance fees are not included in Kairoute; the site sells the ticket and sets the price).
+//
+// Where the button goes comes from data, never from a guess, in this order:
+//  1. The operator's own ticket store, when the sight's official website (Wikidata "official website", the map's
+//     website tag, or the travel guide's listing) is on an operator below. Each store was seen linked from that
+//     operator's own website (checked Nov 18 2026). A new operator joins this list only the same way.
+//  2. Greek state sites: every archaeological site in Greece, and its state archaeological museums, sell their tickets
+//     through Hellenic Heritage, the Ministry of Culture's own store (hh.gr: "the official platform of the Ministry of
+//     Culture and ODAP"). The rule reads the sight's country and what it is, so it holds for Knossos, Delphi, Mycenae...
+//  3. The sight's official website itself: its Tickets page sells the official tickets.
+//  4. Nothing on record: "Find official tickets" opens a web search for the sight's official tickets, and says so,
+//     with a warning about resellers and lookalike "official" sites. The app never makes up a ticket address.
+// No store here takes a date in its address, so the row names the date to pick there (as the train card does).
+// No prices, no partner or affiliate links (zero spend; partner programs wait for Richard's yes). No AI.
+// It never changes a plan: the Booked tick lives on the day (synced with the trip) and only redraws the row.
+
+// The operators' own ticket stores, matched by the sight's official website. Host match: the domain or a subdomain.
+const TIX_STORES = [
+  { hosts: ["hh.gr", "culture.gr", "culture.gov.gr", "tap.gr"], name: "Hellenic Heritage", who: "the Greek Ministry of Culture's ticket store", url: "https://tickets.hh.gr/en", find: true },
+  { hosts: ["colosseo.it"], name: "the Colosseum Archaeological Park's ticket office", url: "https://ticketing.colosseo.it/en/" },
+  { hosts: ["alhambra-patronato.es"], name: "the Alhambra's official ticket office", url: "https://tickets.alhambra-patronato.es/en/" },
+  { hosts: ["sagradafamilia.org"], name: "the Sagrada Família's official ticket page", url: "https://sagradafamilia.org/en/tickets" },
+  { hosts: ["uffizi.it"], name: "the Uffizi Galleries' official ticket page", url: "https://www.uffizi.it/en/tickets" }
+];
+const TIX_GR = TIX_STORES[0];
+const tixHost = u => { try { const h = new URL(u).hostname.toLowerCase().replace(/^www\./, ""); return h; } catch (e) { return ""; } };
+const tixOnHost = (h, hosts) => !!h && hosts.some(x => h === x || h.endsWith("." + x));
+// What the sight is, in words: an archaeological site, or a Greek state archaeological museum.
+const TIX_DIG = /ancient|archaeolog|archeolog|ruins?\b|acropol|sanctuary|palace of|amphitheat|ancient theat/i;
+const tixGreekState = (s, country) => /^greece$/i.test(String(country || "").trim()) &&
+  (TIX_DIG.test(String(s.category || "") + " " + String(s.kind || "")) || /archaeological (?:museum|site)|archeological (?:museum|site)/i.test(String(s.name || "")) || TIX_DIG.test(String(s.name || "")) && !/museum/i.test(String(s.name || "")));
+
+// The ticket link for one sight. Pure: reads only the sight, its country and city. Used by the Day plan, the Guide
+// and the printed plan, and meant for the Beta 2 engine's plan data as is.
+// Returns { kind: "store" | "official" | "search", url, label, site, find }.
+function tixLink(s, country, cityName) {
+  if (!s) return null;
+  const web = /^https?:\/\//i.test(String(s.web || "")) ? String(s.web) : "", h = tixHost(web);
+  const store = h && TIX_STORES.find(x => tixOnHost(h, x.hosts));
+  if (store) return { kind: "store", url: store.url, label: "Book tickets", site: store.name, who: store.who || "", find: !!store.find };
+  if (tixGreekState(s, country)) return { kind: "store", url: TIX_GR.url, label: "Book tickets", site: TIX_GR.name, who: TIX_GR.who, find: true };
+  if (web) return { kind: "official", url: web, label: "Book tickets", site: h, find: false };
+  const q = `"${String(s.local && s.local !== s.name ? s.local : s.name).replace(/"/g, "")}"${cityName ? " " + cityName : ""} official tickets`;
+  return { kind: "search", url: "https://duckduckgo.com/?q=" + encodeURIComponent(q), label: "Find official tickets", site: "", find: false };
+}
+const tixFor = (s, d) => { const c = d ? cityFor(d) : null; return tixLink(s, c && c.country, c && c.city); };
+
+// Booked ticks, by sight, on the day itself (so they sync with the trip and print with it).
+const tixDone = (d, s) => !!(d && d.tixDone && s && d.tixDone[s.id]);
+function tixSet(d, sid, on) {
+  if (!d || !sid) return;
+  const m = Object.assign({}, d.tixDone || {}); if (on) m[sid] = Date.now(); else delete m[sid];
+  if (Object.keys(m).length) d.tixDone = m; else delete d.tixDone;
+  save();
+}
+
+// The row under a book-ahead stop on the Day plan.
+function tixRow(it, d) {
+  const s = it.place; if (!bookAhead(s)) return "";
+  const L = tixFor(s, d); if (!L) return "";
+  const done = tixDone(d, s), when = d && d.date ? `${fmtDow(d.date)} ${fmtDate(d.date)}` : "";
+  const note = L.kind === "store" ? `Opens ${esc(L.site)}${L.who ? `, ${esc(L.who)}` : ""}.${L.find ? ` Pick ${esc(s.name)}` : ""}${when ? `${L.find ? ", then" : " Pick"} ${esc(when)}` : ""}${L.find || when ? "." : ""}`
+    : L.kind === "official" ? `Opens ${esc(s.name)}'s official website (${esc(L.site)}); use its Tickets page${when ? ` and pick ${esc(when)}` : ""}.`
+    : `No official ticket page on record yet, so this searches the web. Buy only on the site's own website: resellers and lookalike "official" sites charge more.`;
+  return `<div class="tixrow${done ? " done" : ""}" data-tix="${esc(s.id)}">
+    <div class="tixtop">${done ? `<i class="badge tixok">✓ Tickets booked</i>` : `<i class="badge book" title="${esc(String(s.tickets || s.priceNote || "").slice(0, 200))}">Book ahead</i>`}
+      <a class="btn tixbook${L.kind === "search" ? " find" : ""}" href="${esc(L.url)}" target="_blank" rel="noopener" data-tixurl="${esc(L.kind)}">${done ? "Ticket site" : L.label} <span aria-hidden="true">↗</span></a>
+      <button class="tixdone" data-act="tixdone" data-sid="${esc(s.id)}" aria-pressed="${done}">${done ? "Undo" : "Mark booked"}</button></div>
+    ${done ? "" : `<div class="sub tixsmall">${note} Entrance fee not included: you pay the site.</div>`}
+  </div>`;
+}
+function tixAct(act, t) {
+  if (act !== "tixdone") return false;
+  const d = day(), sid = t.dataset.sid; tixSet(d, sid, !(d.tixDone && d.tixDone[sid]));
+  // Only the row is redrawn: a tick never re-plans the day.
+  const el = t.closest("[data-tix]"), city = cityFor(d), s = city && allSites(city).find(x => x.id === sid);
+  if (el && s) { const w = document.createElement("div"); w.innerHTML = tixRow({ place: s }, d).trim(); if (w.firstElementChild) el.replaceWith(w.firstElementChild); }
+  else render();
+  return true;
+}
+// For the day's checks list: what still needs booking.
+function tixCheck(d, stops, add) {
+  const bk = stops.filter(i => bookAhead(i.place)); if (!bk.length) return;
+  const open = bk.filter(i => !tixDone(d, i.place));
+  if (open.length) add("warn", `Book ahead (timed tickets can sell out): ${esc(open.map(i => i.place.name).join(", "))}. Entrance fees aren't included in Kairoute.`);
+  else add("ok", `Tickets marked booked for ${bk.length === 1 ? esc(bk[0].place.name) : `all ${bk.length} book-ahead stops`}.`);
+}
+// The printed plan: where to buy, as a short address (no search links on paper).
+const tixPrint = (s, d) => { const L = tixFor(s, d); return L && L.kind !== "search" ? L.url.replace(/^https?:\/\/(www\.)?/, "").replace(/\/$/, "") : ""; };
+if (typeof window !== "undefined") window.__kairouteTix = { link: tixLink, stores: TIX_STORES, forStop: (i, sid) => { const d = trip.days[i], c = d && cityFor(d), s = c && allSites(c).find(x => x.id === sid); return s ? Object.assign({ book: bookAhead(s), done: tixDone(d, s) }, tixFor(s, d)) : null; } };
 // ---------- Local time: every time on a day is that place's own clock, and "now" is read on that clock ----------
 // Plans are written in the destination's local time (all aboard 18:30 means 18:30 in Naples). The device may still
 // be on home time, so "now", "today" and every countdown are worked out from the real instant in the day's zone.
@@ -16941,4 +17079,4 @@ render();
 
 </script>
 <script>if ("serviceWorker" in navigator) addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));</script>
-<script>(function(){var B="b518e56-1795015655";function ep(v){return +String(v).split("-").pop()||0}function busy(){return document.body&&document.body.classList.contains("touring-on")}function chk(){if(location.protocol!=="https:"||document.visibilityState!=="visible")return;fetch("version.txt",{cache:"no-store"}).then(function(r){return r.ok?r.text():""}).then(function(t){t=t.trim();if(!t||t===B||ep(t)<=ep(B)||busy())return;var k="kairoute.reloadedTo",s="";try{s=sessionStorage.getItem(k)||"";sessionStorage.setItem(k,t)}catch(e){}if(s===t){var u=new URL(location.href);if(u.searchParams.get("v")===t)return;u.searchParams.set("v",t);location.replace(u.href)}else location.reload()}).catch(function(){})}addEventListener("load",chk);addEventListener("pageshow",function(e){if(e.persisted)chk()});addEventListener("focus",chk);document.addEventListener("visibilitychange",chk);setInterval(chk,300000);if(navigator.serviceWorker)navigator.serviceWorker.addEventListener("message",function(e){if(e.data&&e.data.type==="kairoute-sw"){try{e.source.postMessage({type:"kairoute-alive"})}catch(x){}chk()}})})();</script>
+<script>(function(){var B="3f56235-1795015795";function ep(v){return +String(v).split("-").pop()||0}function busy(){return document.body&&document.body.classList.contains("touring-on")}function chk(){if(location.protocol!=="https:"||document.visibilityState!=="visible")return;fetch("version.txt",{cache:"no-store"}).then(function(r){return r.ok?r.text():""}).then(function(t){t=t.trim();if(!t||t===B||ep(t)<=ep(B)||busy())return;var k="kairoute.reloadedTo",s="";try{s=sessionStorage.getItem(k)||"";sessionStorage.setItem(k,t)}catch(e){}if(s===t){var u=new URL(location.href);if(u.searchParams.get("v")===t)return;u.searchParams.set("v",t);location.replace(u.href)}else location.reload()}).catch(function(){})}addEventListener("load",chk);addEventListener("pageshow",function(e){if(e.persisted)chk()});addEventListener("focus",chk);document.addEventListener("visibilitychange",chk);setInterval(chk,300000);if(navigator.serviceWorker)navigator.serviceWorker.addEventListener("message",function(e){if(e.data&&e.data.type==="kairoute-sw"){try{e.source.postMessage({type:"kairoute-alive"})}catch(x){}chk()}})})();</script>
