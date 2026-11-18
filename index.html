@@ -2449,7 +2449,7 @@ if (typeof module !== "undefined") module.exports = KEngine;
         const toGo = len === E.TO_GO;
         const meal = { id: "eat:" + e.k, eatKey: e.k, name: e.r.name, lat: e.r.lat, lng: e.r.lng, mealOf: L, len, quick: len < L.len, toGo, chosen: !!my.pick, fromMap: !!e.r.fromMap };
         const off = b && isFinite(b.lat) ? E.hav(a, e.r) + E.hav(e.r, b) - E.hav(a, b) : E.hav(a, e.r);
-        const seq = order.slice(0, k).concat([meal], order.slice(k)), r = walk(seq, win, ctx), pen = penalty(r) + (toGo ? 60 : len < L.len ? 20 : 0) + off * 8 + (e.r.fromMap ? 3 : 0);
+        const seq = order.slice(0, k).concat([meal], order.slice(k)), r = walk(seq, win, ctx), pen = penalty(r) + (toGo ? 60 : len < L.len ? 20 : 0) + off * 1.5 + (e.r.fromMap ? 0.5 : 0); // a km out of the way weighs like half an hour more riding
         // On a ship, train or plane day lunch is something the app adds, so it keeps the same margin as any added sight.
         if (win.hard && !r.over && win.endBy - r.end < E.FILL_MARGIN) { tight = true; continue; }
         if (!best || pen < best.pen - 1e-9) best = { seq, r, pen };
@@ -2824,7 +2824,9 @@ if (typeof module !== "undefined") module.exports = KEngine;
       const own = g => (groups.members.get(String(g.id)) || []).map(m => byIdR.get(String(m))).filter(m => m && E.ownStop(m, picked));
       // A sight seen only from the water is never a stop the app adds on a ship, train or plane day (a boat tour is the
       // traveler's own pick); picked, it is reached by boat.
-      const pool = ranked.filter(s => E.allowed(s, prefs, siteDay(s.id), win) && !folded(s) && !(win.hard && E.waterOnly(s) && !picked.has(String(s.id))))
+      // An optional stop the traveler said "Skip it" to is never added to this day again (Nov 18: the button did nothing).
+      const skipped = new Set((d.skipBonus || []).map(String));
+      const pool = ranked.filter(s => E.allowed(s, prefs, siteDay(s.id), win) && !folded(s) && !(win.hard && E.waterOnly(s) && !picked.has(String(s.id))) && !(skipped.has(String(s.id)) && !picked.has(String(s.id))))
         .map(s => { const o = own(s); if (!o.length) return s; const left = Math.max(30, Math.round(((s.minutes || 60) - o.reduce((a, m) => a + (m.minutes || 30), 0)) / 5) * 5);
           return left < (s.minutes || 60) ? Object.assign({}, s, { minutes: left, walkOf: o.map(m => m.name) }) : s; });
       const explain = [], wishes = [];
@@ -5205,7 +5207,9 @@ let rideNotice = null, ridePref = "public";
 // had, says how much longer the new ride is and which stop wouldn't fit, and offers, as the traveler's own choice, to
 // take it anyway and leave that stop out (with Undo). A ride the traveler chose stays chosen.
 function switchRide(key, val, force) {
-  const d = day(), names = pl => pl && !pl.error ? pl.items.filter(i => i.type === "stop").map(i => i.place.name) : [];
+  // Only the traveler's own stops count: an optional stop the app added to fill time gives way to the ride they pick
+  // (Nov 18, Naples: the train was refused because it "would leave out Umberto I Gallery", an optional stop).
+  const d = day(), names = pl => pl && !pl.error ? pl.items.filter(i => i.type === "stop" && !i.place.bonus).map(i => i.place.name) : [];
   trip.legModes = trip.legModes || {}; const was = trip.legModes[key];
   const back = () => { if (was == null) delete trip.legModes[key]; else trip.legModes[key] = was; };
   const before = buildPlan(d); trip.legModes[key] = val; const after = buildPlan(d);
@@ -10600,7 +10604,9 @@ function mapPlanData(plan, d) {
   plan.items.forEach(it => {
     if (it.type === "travel") { pending = it; return; }
     const p = it.place; if (!p || !isFinite(p.lat) || !isFinite(p.lng)) return;
-    if (last && pending) { const o = pending.leg.transit; legs.push({ mode: pending.leg.mode === "ride" ? "car" : "foot", kind: legKind(pending.leg), a: [last.lng, last.lat], b: [p.lng, p.lat], path: o && o.path && o.path.length > 1 ? [[last.lng, last.lat], ...o.path, [p.lng, p.lat]] : null }); }
+    if (last && pending) { const o = pending.leg.transit; const kind = legKind(pending.leg), a = [last.lng, last.lat], b = [p.lng, p.lat];
+      // A ferry crosses the water: drawn straight across, never along the coast road (Nov 18, Naples to Sorrento).
+      legs.push({ mode: pending.leg.mode === "ride" ? "car" : "foot", kind, a, b, path: o && o.path && o.path.length > 1 ? [a, ...o.path, b] : kind === "ferry" ? [a, b] : null }); }
     last = p; pending = null;
     const at = p.lat.toFixed(5) + "," + p.lng.toFixed(5);
     if (it.type === "start" || it.type === "end" || it.type === "fixed") {
@@ -17950,4 +17956,4 @@ render();
 
 </script>
 <script>if ("serviceWorker" in navigator) addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));</script>
-<script>(function(){var B="d1d32e4-1795039756";function ep(v){return +String(v).split("-").pop()||0}function busy(){return document.body&&document.body.classList.contains("touring-on")}function chk(){if(location.protocol!=="https:"||document.visibilityState!=="visible")return;fetch("version.txt",{cache:"no-store"}).then(function(r){return r.ok?r.text():""}).then(function(t){t=t.trim();if(!t||t===B||ep(t)<=ep(B)||busy())return;var k="kairoute.reloadedTo",s="";try{s=sessionStorage.getItem(k)||"";sessionStorage.setItem(k,t)}catch(e){}if(s===t){var u=new URL(location.href);if(u.searchParams.get("v")===t)return;u.searchParams.set("v",t);location.replace(u.href)}else location.reload()}).catch(function(){})}addEventListener("load",chk);addEventListener("pageshow",function(e){if(e.persisted)chk()});addEventListener("focus",chk);document.addEventListener("visibilitychange",chk);setInterval(chk,300000);if(navigator.serviceWorker)navigator.serviceWorker.addEventListener("message",function(e){if(e.data&&e.data.type==="kairoute-sw"){try{e.source.postMessage({type:"kairoute-alive"})}catch(x){}chk()}})})();</script>
+<script>(function(){var B="d1d32e4-1795041344";function ep(v){return +String(v).split("-").pop()||0}function busy(){return document.body&&document.body.classList.contains("touring-on")}function chk(){if(location.protocol!=="https:"||document.visibilityState!=="visible")return;fetch("version.txt",{cache:"no-store"}).then(function(r){return r.ok?r.text():""}).then(function(t){t=t.trim();if(!t||t===B||ep(t)<=ep(B)||busy())return;var k="kairoute.reloadedTo",s="";try{s=sessionStorage.getItem(k)||"";sessionStorage.setItem(k,t)}catch(e){}if(s===t){var u=new URL(location.href);if(u.searchParams.get("v")===t)return;u.searchParams.set("v",t);location.replace(u.href)}else location.reload()}).catch(function(){})}addEventListener("load",chk);addEventListener("pageshow",function(e){if(e.persisted)chk()});addEventListener("focus",chk);document.addEventListener("visibilitychange",chk);setInterval(chk,300000);if(navigator.serviceWorker)navigator.serviceWorker.addEventListener("message",function(e){if(e.data&&e.data.type==="kairoute-sw"){try{e.source.postMessage({type:"kairoute-alive"})}catch(x){}chk()}})})();</script>
