@@ -27,3 +27,10 @@ jobs:
           path: _site
       - id: deployment
         uses: actions/deploy-pages@v4
+      # The site is only "published" when the live page serves this version (a deploy can fail on GitHub's side).
+      - name: Check the live site serves this version
+        run: |
+          want=$(tr -d '\n' < version.txt)
+          for n in $(seq 1 30); do got=$(curl -fsS "https://gilsonr0566-sys.github.io/Kairoute-Beta2/version.txt?n=$n" | tr -d '\n' || true)
+            [ "$got" = "$want" ] && { echo "live: $got"; exit 0; }; sleep 10; done
+          echo "live site still serves '$got', expected '$want'"; exit 1
