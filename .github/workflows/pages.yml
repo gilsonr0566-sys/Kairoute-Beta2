@@ -1,0 +1,29 @@
+name: Publish Beta 2
+# The Beta 2 copy of Kairoute (planned by the new engine), built from the Kairoute repository's Beta 2 branch with
+# build-beta2.sh and published here as plain files. Nothing to build here: every push publishes these files.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+concurrency:
+  group: publish-beta2
+  cancel-in-progress: false
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - run: mkdir _site && cp -r index.html usage.html version.txt .nojekyll manifest.webmanifest sw.js icons lib ai.json _site/
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+      - id: deployment
+        uses: actions/deploy-pages@v4
