@@ -1658,6 +1658,11 @@ if (typeof module !== "undefined") module.exports = KEngine;
             editions: x.editions || 0, unesco: !!x.unesco, tags: ["from-guide"], category: "Sight", fromGuide: true, blurb: x.note || "" }, x.web ? { web: x.web } : {})).filter((x, i, a) => a.findIndex(y => y.id === x.id) === i);
         if (more.length) city.sites = (city.sites || []).concat(more);
       }
+      // Restaurants and cafés on the map beside the place's sights: lunch where the traveler is, never a detour back to the
+      // few the guide names (Nov 18, Corpus Christi). Kept apart as from the map (no review behind them).
+      if ((P.cityEats || []).length) { const have = new Set((city.restaurants || []).map(r => E.eatKey(r.name)));
+        city.restaurants = (city.restaurants || []).concat(P.cityEats.filter(x => x.name && isFinite(x.lat) && isFinite(x.lng) && !have.has(E.eatKey(x.name)))
+          .map(x => ({ id: "map~" + E.eatKey(x.name).replace(/ /g, "-"), name: x.name, lat: x.lat, lng: x.lng,  kind: x.amenity || "restaurant", amenity: x.amenity || "restaurant", cuisine: x.cuisine || "", fromMap: true }))); }
       const added = [];
       for (const s of city.farther || []) {
         const t = P.towns && P.towns[s.id]; if (!t) continue;
@@ -2400,7 +2405,7 @@ if (typeof module !== "undefined") module.exports = KEngine;
     for (const x of ctx.eatList) {
       if (meal === "Lunch" ? x.f.lunchShut : x.f.dinnerShut || x.r.townLunch) continue;
       if (!ctx.ledger.eatFree(x.k, ctx.dayIdx)) continue;
-      out.push({ r: x.r, k: x.k, d: E.hav(p, x.r) });
+      out.push({ r: x.r, k: x.k, d: E.hav(p, x.r) + (x.r.fromMap ? 0.4 : 0) }); // a guide place to eat first, a map one when it is nearer the way
     }
     out.sort((a, b) => a.d - b.d || a.k.localeCompare(b.k));
     const res = out.slice(0, n).filter(x => x.d <= 1.5);
@@ -2433,12 +2438,18 @@ if (typeof module !== "undefined") module.exports = KEngine;
     const before = dep.map((t, k) => t < L.from - 75 ? k : -1).filter(k => k >= 0).pop(), after = dep.findIndex(t => t > L.to);
     if (before != null) gaps.push(before); if (after >= 0) gaps.push(after);
     for (const k of [...new Set(gaps)].sort((a, b) => a - b)) {
-      for (const e of my.pick ? [my.pick] : eatsNear(pts[k], ctx, "Lunch", 3)) for (const len of [L.len, L.quick, E.TO_GO]) {
+      // Lunch where the traveler is or along the way (Nov 18, Corpus Christi: North Beach, back over the bridge for lunch,
+      // then over the bridge again): places to eat near the stop before, near the stop after and halfway between; each
+      // costs what it takes them out of their way, so the one on the path wins over a slightly nearer one behind them.
+      const a = pts[k], b = order[k] || null, mid = b && isFinite(b.lat) ? { lat: (a.lat + b.lat) / 2, lng: (a.lng + b.lng) / 2 } : null;
+      const cands = my.pick ? [my.pick] : [...new Map([a, b, mid].filter(q => q && isFinite(q.lat)).flatMap(q => eatsNear(q, ctx, "Lunch", 3)).map(e => [e.k, e])).values()];
+      for (const e of cands) for (const len of [L.len, L.quick, E.TO_GO]) {
         // A sit-down lunch, a quicker one when the day is tight, or lunch on the go (bought and eaten walking on) when
         // only that keeps every stop: each a small cost, so the fuller lunch wins whenever it fits.
         const toGo = len === E.TO_GO;
-        const meal = { id: "eat:" + e.k, eatKey: e.k, name: e.r.name, lat: e.r.lat, lng: e.r.lng, mealOf: L, len, quick: len < L.len, toGo, chosen: !!my.pick };
-        const seq = order.slice(0, k).concat([meal], order.slice(k)), r = walk(seq, win, ctx), pen = penalty(r) + (toGo ? 60 : len < L.len ? 20 : 0);
+        const meal = { id: "eat:" + e.k, eatKey: e.k, name: e.r.name, lat: e.r.lat, lng: e.r.lng, mealOf: L, len, quick: len < L.len, toGo, chosen: !!my.pick, fromMap: !!e.r.fromMap };
+        const off = b && isFinite(b.lat) ? E.hav(a, e.r) + E.hav(e.r, b) - E.hav(a, b) : E.hav(a, e.r);
+        const seq = order.slice(0, k).concat([meal], order.slice(k)), r = walk(seq, win, ctx), pen = penalty(r) + (toGo ? 60 : len < L.len ? 20 : 0) + off * 8 + (e.r.fromMap ? 3 : 0);
         // On a ship, train or plane day lunch is something the app adds, so it keeps the same margin as any added sight.
         if (win.hard && !r.over && win.endBy - r.end < E.FILL_MARGIN) { tight = true; continue; }
         if (!best || pen < best.pen - 1e-9) best = { seq, r, pen };
@@ -2632,7 +2643,7 @@ if (typeof module !== "undefined") module.exports = KEngine;
       if (type === "stop") { const sd = siteDay ? siteDay(p.id) : null, f = E.hoursFit(sd && sd.oh, clock, p.minutes);
         if (f.wait) { clock += f.wait; waits += f.wait; it.wait = f.wait; } if (f.late > 0) { late++; it.late = f.late; }
         if (p.bonus) it.bonus = true; if (p.along) it.along = true; }
-      if (type === "meal") { const m = p.mealOf; if (clock < m.from) { waits += m.from - clock; clock = m.from; } it.meal = m.label; it.min = p.len || m.len; if (m.booked) it.booked = true; if (m.pinned) it.pinned = true; if (p.chosen) it.chosen = true; if (p.toGo) it.toGo = true; if (clock > m.to) it.lateMeal = clock - m.to; }
+      if (type === "meal") { const m = p.mealOf; if (clock < m.from) { waits += m.from - clock; clock = m.from; } it.meal = m.label; it.min = p.len || m.len; if (m.booked) it.booked = true; if (m.pinned) it.pinned = true; if (p.chosen) it.chosen = true; if (p.toGo) it.toGo = true; if (p.fromMap) it.fromMap = true; if (clock > m.to) it.lateMeal = clock - m.to; }
       it.at = clock; items.push(it); clock += it.min; prev = p;
     };
     win.head.slice(1).forEach(p => go(p, "fixed"));
@@ -2878,6 +2889,7 @@ if (typeof module !== "undefined") module.exports = KEngine;
       const unknownHours = fit.kept.filter(k => !k.far && !E.has(k, "open-air") && (k.wish || BUILDING.test(k.name + " " + (k.category || ""))) && !hoursKnown(k.id));
       if (unknownHours.length && (city.sites || []).some(s => hoursKnown(s.id)))
         explain.push("Opening hours for " + E.listWords(unknownHours.slice(0, 4).map(k => String(k.name).split(",")[0]).concat(unknownHours.length > 4 ? ["others"] : []), "and") + " aren't on the map yet: check before you go.");
+      { const m = (fit.seq || []).find(x => x.mealOf && x.fromMap); if (m) explain.push("Lunch at " + m.name + " is a place to eat on the map beside your stops (the guide names none on your way): check reviews before you go."); }
       const plan = shortForm(i, win, fit, autoIds, dinner, !!d.own);
       // A boat on its own timetable: the plan names the latest boat back that keeps the day as planned.
       plan.items.forEach((x, k) => { if (x.t !== "ride" || x.mode !== "boat" || !plan.items[k - 1] || plan.items[k - 1].t !== "stop") return;
@@ -17938,4 +17950,4 @@ render();
 
 </script>
 <script>if ("serviceWorker" in navigator) addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));</script>
-<script>(function(){var B="ffb88ef-1795037986";function ep(v){return +String(v).split("-").pop()||0}function busy(){return document.body&&document.body.classList.contains("touring-on")}function chk(){if(location.protocol!=="https:"||document.visibilityState!=="visible")return;fetch("version.txt",{cache:"no-store"}).then(function(r){return r.ok?r.text():""}).then(function(t){t=t.trim();if(!t||t===B||ep(t)<=ep(B)||busy())return;var k="kairoute.reloadedTo",s="";try{s=sessionStorage.getItem(k)||"";sessionStorage.setItem(k,t)}catch(e){}if(s===t){var u=new URL(location.href);if(u.searchParams.get("v")===t)return;u.searchParams.set("v",t);location.replace(u.href)}else location.reload()}).catch(function(){})}addEventListener("load",chk);addEventListener("pageshow",function(e){if(e.persisted)chk()});addEventListener("focus",chk);document.addEventListener("visibilitychange",chk);setInterval(chk,300000);if(navigator.serviceWorker)navigator.serviceWorker.addEventListener("message",function(e){if(e.data&&e.data.type==="kairoute-sw"){try{e.source.postMessage({type:"kairoute-alive"})}catch(x){}chk()}})})();</script>
+<script>(function(){var B="d1d32e4-1795039756";function ep(v){return +String(v).split("-").pop()||0}function busy(){return document.body&&document.body.classList.contains("touring-on")}function chk(){if(location.protocol!=="https:"||document.visibilityState!=="visible")return;fetch("version.txt",{cache:"no-store"}).then(function(r){return r.ok?r.text():""}).then(function(t){t=t.trim();if(!t||t===B||ep(t)<=ep(B)||busy())return;var k="kairoute.reloadedTo",s="";try{s=sessionStorage.getItem(k)||"";sessionStorage.setItem(k,t)}catch(e){}if(s===t){var u=new URL(location.href);if(u.searchParams.get("v")===t)return;u.searchParams.set("v",t);location.replace(u.href)}else location.reload()}).catch(function(){})}addEventListener("load",chk);addEventListener("pageshow",function(e){if(e.persisted)chk()});addEventListener("focus",chk);document.addEventListener("visibilitychange",chk);setInterval(chk,300000);if(navigator.serviceWorker)navigator.serviceWorker.addEventListener("message",function(e){if(e.data&&e.data.type==="kairoute-sw"){try{e.source.postMessage({type:"kairoute-alive"})}catch(x){}chk()}})})();</script>
