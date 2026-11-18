@@ -2511,7 +2511,7 @@ if (typeof module !== "undefined") module.exports = KEngine;
       const prev = items[items.length - 1], here = point(whereIs(x));
       if (prev && prev.t === "ride" && items.length >= 2) { const a = items[items.length - 2]; if (isFinite(a.lat) && isFinite(here.lat)) Object.assign(prev, { from: { lat: a.lat, lng: a.lng }, to: here }); }
       const src = x.id != null ? byId.get(String(x.id)) : null;
-      const it = { t: x.t, id: x.t === "meal" ? null : x.id, name: x.name, at: x.at, min: x.min, bonus: x.t === "stop" && autoIds.has(String(x.id)), along: false, meal: x.meal || null, late: x.late || 0 };
+      const it = { t: x.t, id: x.t === "meal" ? null : x.id, name: x.name, at: x.at, min: x.min, bonus: x.t === "stop" && autoIds.has(String(x.id)) && !(src && E.wantedStop(src)), along: false, meal: x.meal || null, late: x.late || 0 };
       if (x.wait) it.wait = x.wait; if (x.chosen) it.chosen = true; if (x.pinned) it.pinned = true;
       Object.assign(it, point(whereIs(x)));
       items.push(it);
@@ -2746,6 +2746,8 @@ if (typeof module !== "undefined") module.exports = KEngine;
       if (!left.length) return; p.leftOut = left.map(s => s.id);
       const names = left.slice(0, 4).map(s => s.name).concat(left.length > 4 ? [(left.length - 4) + " more"] : []);
       p.explain = (p.explain || []).concat(["Also worth seeing here, but not in today's time: " + E.listWords(names, "and") + "."]); });
+    // Each thing said once.
+    out.forEach(p => { if (p && p.explain) p.explain = p.explain.filter((t, k, a) => a.indexOf(t) === k); });
     return out;
   };
 })(KEngine);
@@ -5700,6 +5702,13 @@ function mealPickRaw(seq, O, Z, city, m, style) {
 // ---- What this day's plan was checked against ----
 // Every plan shows which checks passed and, just as plainly, what couldn't be confirmed, so nothing missing
 // is passed off as checked.
+// Beta 2 only: the new engine says, in plain words, why the day looks as it does (a sight that didn't fit and the ways to
+// fit it in, a pick moved to an open day, a boat's timetable). Nothing in the normal build, whose plans carry no engine2.
+function engine2Card(plan) {
+  const say = ((plan && plan.engine2 && plan.engine2.explain) || []).filter(Boolean);
+  if (!say.length) return "";
+  return `<details class="card foldlist engine2why" open><summary>About today's plan</summary><ul>${say.map(t => `<li>${esc(t)}</li>`).join("")}</ul></details>`;
+}
 function checksCard(d, city, plan) {
   if (!plan || !plan.items) return "";
   const rows = [], add = (st, t) => rows.push(`<li class="ck ${st}"><span>${st === "ok" ? "✓" : st === "warn" ? "!" : "?"}</span>${t}</li>`);
@@ -10786,6 +10795,7 @@ function legendHTML(plan) {
   ${canLen ? `<div class="planbar">
     ${canLen ? `<div class="seg pace daylen" role="group" aria-label="How long to sightsee today">${DAY_LEN.map(([h, l, sub]) => `<button type="button" data-act="daylen" data-h="${h}" aria-pressed="${+d.hours === h}" title="${esc(l)}: ${esc(sub)} of sightseeing">${esc(l.replace(/ day$/, ""))} <small>${sub}</small></button>`).join("")}</div>` : ""}
   </div>` : ""}
+  ${engine2Card(plan)}
   </div><div class="left pane" data-pane="map">
   <div class="mapbox">${mapSlot(plan, d, "plan")}
     <div class="maplegend">${legendHTML(plan)}</div>
@@ -16888,6 +16898,8 @@ if (typeof window !== "undefined" && window.ENGINE2 && window.KEngine) (function
     ep.items.forEach((x, k) => {
       if (x.t === "ride") {
         const leg = { mode: MODE[x.mode] || "ride", how: x.how || (x.mode === "walk" ? "Walk" : x.mode === "boat" ? "Boat" : x.mode === "lift" ? "Cable car" : "Taxi or car"), km: x.km || 0, min: x.min || 0 };
+        // Drawn and labelled as what it is: a boat as a ferry, a cable car with the rail-like lines (never as a taxi).
+        if (x.mode === "boat") leg.kind = "ferry"; else if (x.mode === "lift") leg.kind = "train";
         if (x.options) leg.options = x.options; if (x.from) leg.from = x.from; if (x.to) leg.to = x.to;
         items.push({ type: "travel", leg, time: (items.length ? items[items.length - 1].time + (items[items.length - 1].dur || 0) : ep.start) }); return;
       }
@@ -16896,7 +16908,7 @@ if (typeof window !== "undefined" && window.ENGINE2 && window.KEngine) (function
       if (x.t === "fixed") { items.push({ type: "fixed", place: at(x, x.name, { minutes: x.min, fixed: true }), time: x.at }); return; }
       if (x.t === "stop") {
         const s = byId.get(String(x.id)); const p = Object.assign({}, s || at(x), { minutes: x.min });
-        if (x.bonus) p.bonus = true; if (x.within) p.within = x.within; if (x.includes) p.includes = x.includes;
+        p.bonus = !!x.bonus; // the engine's own word: a stop it planned is part of the day, whatever the guide's listing says if (x.within) p.within = x.within; if (x.includes) p.includes = x.includes;
         const it = Object.assign({ type: "stop", place: p, time: x.at }, x.wait ? { wait: x.wait } : {}, x.late ? { ohLate: x.late } : {});
         items.push(it); stops.push(it); return;
       }
@@ -16929,4 +16941,4 @@ render();
 
 </script>
 <script>if ("serviceWorker" in navigator) addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));</script>
-<script>(function(){var B="b518e56-1795015376";function ep(v){return +String(v).split("-").pop()||0}function busy(){return document.body&&document.body.classList.contains("touring-on")}function chk(){if(location.protocol!=="https:"||document.visibilityState!=="visible")return;fetch("version.txt",{cache:"no-store"}).then(function(r){return r.ok?r.text():""}).then(function(t){t=t.trim();if(!t||t===B||ep(t)<=ep(B)||busy())return;var k="kairoute.reloadedTo",s="";try{s=sessionStorage.getItem(k)||"";sessionStorage.setItem(k,t)}catch(e){}if(s===t){var u=new URL(location.href);if(u.searchParams.get("v")===t)return;u.searchParams.set("v",t);location.replace(u.href)}else location.reload()}).catch(function(){})}addEventListener("load",chk);addEventListener("pageshow",function(e){if(e.persisted)chk()});addEventListener("focus",chk);document.addEventListener("visibilitychange",chk);setInterval(chk,300000);if(navigator.serviceWorker)navigator.serviceWorker.addEventListener("message",function(e){if(e.data&&e.data.type==="kairoute-sw"){try{e.source.postMessage({type:"kairoute-alive"})}catch(x){}chk()}})})();</script>
+<script>(function(){var B="b518e56-1795015655";function ep(v){return +String(v).split("-").pop()||0}function busy(){return document.body&&document.body.classList.contains("touring-on")}function chk(){if(location.protocol!=="https:"||document.visibilityState!=="visible")return;fetch("version.txt",{cache:"no-store"}).then(function(r){return r.ok?r.text():""}).then(function(t){t=t.trim();if(!t||t===B||ep(t)<=ep(B)||busy())return;var k="kairoute.reloadedTo",s="";try{s=sessionStorage.getItem(k)||"";sessionStorage.setItem(k,t)}catch(e){}if(s===t){var u=new URL(location.href);if(u.searchParams.get("v")===t)return;u.searchParams.set("v",t);location.replace(u.href)}else location.reload()}).catch(function(){})}addEventListener("load",chk);addEventListener("pageshow",function(e){if(e.persisted)chk()});addEventListener("focus",chk);document.addEventListener("visibilitychange",chk);setInterval(chk,300000);if(navigator.serviceWorker)navigator.serviceWorker.addEventListener("message",function(e){if(e.data&&e.data.type==="kairoute-sw"){try{e.source.postMessage({type:"kairoute-alive"})}catch(x){}chk()}})})();</script>
