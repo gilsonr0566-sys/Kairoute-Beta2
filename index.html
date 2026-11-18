@@ -4967,6 +4967,7 @@ function transitNear(a, b, kind) {
 let nearGen = 0;
 function nearOnce(exact, a, b, kind) { const m = nearMemo.get(exact); if (m && m.g === nearGen) return m.v; const v = transitNear(a, b, kind); nearMemo.set(exact, { g: nearGen, v }); return v; }
 const nearMemo = new WeakMap();
+let transitPeek = false;
 function transitFor(a, b) {
   if (!a || !b || !isFinite(a.lat) || !isFinite(b.lat) || hav(a, b) < 1.5) return null; // city rides too: a bus or metro across town is a real choice (Nov 16)
   const dow = planDow(), k = pairKey(a, b) + "|" + dayKind(dow), exact = transitMem[k] || transitMem[pairKey(a, b)], hit = exact && exact.opts && exact.opts.length ? exact : (exact ? nearOnce(exact, a, b, dayKind(dow)) : transitNear(a, b, dayKind(dow))) || exact; // an empty exact answer never hides a nearby one's lines
@@ -4975,6 +4976,8 @@ function transitFor(a, b) {
   // was busy or an empty one (after 10 minutes), or a nearby trip's answer (the exact ride is asked). With no internet
   // whatever is kept is simply used.
   if (hit && !transitDue(exact, hit)) return hit.opts.filter(runsThen).map(tidyRide);
+  // A look without asking: a planner weighing many possible rides reads what is known and asks only for the rides it keeps.
+  if (transitPeek) return hit ? hit.opts.filter(runsThen).map(tidyRide) : null;
   if (typeof freeAI !== "undefined" && freeAI && !transitQ.has(k) && !(transitFail.get(k) > Date.now() - 120000)) { transitQ.set(k, { a: [+a.lat, +a.lng], b: [+b.lat, +b.lng], dow, date: typeof planDate !== "undefined" && planDate ? planDate : undefined, pri: typeof trip !== "undefined" && trip.days && trip.days[trip.active] && typeof planDate !== "undefined" && trip.days[trip.active].date === planDate }); clearTimeout(transitTimer); transitTimer = setTimeout(askTransit, 300); }
   return hit ? hit.opts.filter(runsThen).map(tidyRide) : null;
 }
@@ -17608,6 +17611,12 @@ function sightTags(city, s) {
   return out;
 }
 const wishIds = (d, city) => { try { return city && typeof wantIds === "function" ? wantIds(d, city) : []; } catch (e) { return []; } };
+const bucketCityMemo = new Map();
+function cityMemoOf(city, ck, ints) {
+  const sig = strHash(JSON.stringify(city)) + "|" + ints.join(",") + "|" + JSON.stringify(P());
+  let m = bucketCityMemo.get(ck); if (!m || m.sig !== sig) { m = { sig, sites: null, farther: null, dates: new Map() }; bucketCityMemo.set(ck, m); }
+  return m;
+}
 function engineBucket(withOld) {
   const n = v => (isFinite(+v) ? +v : null);
   const pt = p => p ? { id: p.id || null, name: p.name || "", lat: n(p.lat), lng: n(p.lng), unknown: !!p.unknown || (typeof unsurePoint === "function" && unsurePoint(p)) } : null;
@@ -17626,9 +17635,14 @@ function engineBucket(withOld) {
   });
   trip.days.forEach((d, i) => {
     const city = cityFor(d), ck = city ? keyOf(city.city) : null;
+    // A guide's sight facts, and each date's opening hours, crowds and closed days, depend only on the guide itself
+    // (its sights' and places' own fields), the traveler's interests and preferences: worked out once per guide as it
+    // stands and kept until the guide changes, never again on every answer arriving.
+    const cm = city ? cityMemoOf(city, ck, ints) : null;
     if (city && !cityOut[ck]) {
+      if (!cm.sites) { cm.sites = (city.sites || []).map(s => siteFacts(city, s)); cm.farther = (city.farther || []).map(s => Object.assign(siteFacts(city, s), { far: true })); }
       cityOut[ck] = { key: ck, name: city.city, srcGuide: !!city.srcGuide,
-        sites: (city.sites || []).map(s => siteFacts(city, s)), farther: (city.farther || []).map(s => Object.assign(siteFacts(city, s), { far: true })),
+        sites: cm.sites, farther: cm.farther,
         restaurants: (city.restaurants || []).filter(r => isFinite(+r.lat)).map(r => ({ id: keyOf(r.name), name: r.name, lat: +r.lat, lng: +r.lng, kind: r.kind || "", cuisine: r.cuisine || "",
           recommended: !!r.recommended, bothGuides: !!r.bothGuides, top: !!r.top, crowdTop: !!r.crowdTop, good: gGood(r.g || gOf(r)), drop: !!r.crowdDrop || gBad(r.g || gOf(r)) })) };
     }
@@ -17650,9 +17664,13 @@ function engineBucket(withOld) {
       locked: d.ready && d.ready.lock && Array.isArray(d.ready.lock.seq) ? { t: d.ready.lock.t, seq: d.ready.lock.seq.filter(x => !x.meal).map(x => x.id).filter(Boolean) } : null,
       wx: city ? wxFor(d, city) : null, sites: {}, eats: {} };
     if (city && d.date) {
-      allSites(city).forEach(s => { const oh = siteWindow(s, d.date), cw = crowdWindows(Object.assign({ _city: ck }, s), d.date);
-        facts.sites[s.id] = { closed: siteClosed(s, d.date), oh: oh ? { spans: oh.spans, last: oh.last != null ? oh.last : null } : null, busy: cw ? cw.busy : null }; });
-      (city.restaurants || []).forEach(r => { facts.eats[keyOf(r.name)] = { lunchShut: mealShut(r, "Lunch", d.date), dinnerShut: mealShut(r, "Dinner", d.date) }; });
+      let on = cm.dates.get(d.date);
+      if (!on) { on = { sites: {}, eats: {} };
+        allSites(city).forEach(s => { const oh = siteWindow(s, d.date), cw = crowdWindows(Object.assign({ _city: ck }, s), d.date);
+          on.sites[s.id] = { closed: siteClosed(s, d.date), oh: oh ? { spans: oh.spans, last: oh.last != null ? oh.last : null } : null, busy: cw ? cw.busy : null }; });
+        (city.restaurants || []).forEach(r => { on.eats[keyOf(r.name)] = { lunchShut: mealShut(r, "Lunch", d.date), dinnerShut: mealShut(r, "Dinner", d.date) }; });
+        cm.dates.set(d.date, on); }
+      facts.sites = on.sites; facts.eats = on.eats;
     }
     // What's still missing from the bucket for this day. Planning a day waits until its bucket is complete (or says
     // plainly what it planned without), so a plan is never made from half the pieces and then changed as the rest arrive.
@@ -17692,19 +17710,34 @@ if (typeof window !== "undefined" && window.ENGINE2 && window.KEngine) (function
     // An answer arriving for a ride (a timetable search) replans, as it does in the app.
     return strHash(t) + "|" + dataGen + "|" + (typeof nearGen !== "undefined" ? nearGen : 0) + "|" + citiesSig() + "|" + todayISO();
   }
+  // The engine weighs many possible rides: it reads the answers known so far without asking for each one. The rides
+  // it keeps are asked for when their day is shown (below), as the app does for its plans; an answer that arrives for
+  // one of them changes what the plans used, so they are made again with it.
+  const answerOf = (a, b) => { let r; transitPeek = true; try { r = transitFor(a, b); } finally { transitPeek = false; } return r && r.map(o => ({ id: rideId(o), min: o.min, label: o.label, kind: rideKind(o) })); };
+  const askRides = ep => { (ep && ep.items || []).forEach(x => { if (x.t === "ride" && x.from && x.to && x.mode !== "walk" && x.mode !== "boat" && x.mode !== "lift") { try { transitFor(x.from, x.to); } catch (e) {} } }); };
+  const answerSig = (a, b) => JSON.stringify(answerOf(a, b));
   // The whole trip planned once per change (the traveler's trip, an answer arriving, the guides, the date).
+  const stat = { calls: 0, keyMs: 0, bucketMs: 0, checkMs: 0, used: 0, planned: 0 };
+  window.__kairouteEngine2Stat = () => Object.assign({}, stat, { used: memo.used ? memo.used.size : 0 });
   function tripPlans() {
-    const k = keyNow();
+    stat.calls++; let t0 = performance.now();
+    const k = keyNow(); stat.keyMs += performance.now() - t0;
     if (memo.k === k && memo.plans) return memo;
     // The plans depend only on what the engine is given (the bucket) and the ride answers known so far. Most changes
     // to the trip or answers arriving (weather, a photo, the day being looked at) leave both as they were: then the
     // plans stand and nothing is planned again. Only a real change of the engine's inputs replans.
-    let bucket = engineBucket(false);
-    const ik = strHash(JSON.stringify(bucket)) + "|" + (typeof nearGen !== "undefined" ? nearGen : 0) + "|" + todayISO(); // the places files never change while the app runs
-    if (memo.ik === ik && memo.plans) { memo.k = k; return memo; }
+    t0 = performance.now(); let bucket = engineBucket(false);
+    const ik = strHash(JSON.stringify(bucket)) + "|" + todayISO(); // the places files never change while the app runs
+    // A ride answer arriving replans only when it is an answer the plans used and it changed (answers for rides the
+    // plans never take, arriving all the time while the traveler looks around, change nothing).
+    stat.bucketMs += performance.now() - t0; t0 = performance.now();
+    const same = memo.ik === ik && memo.plans && [...memo.used.values()].every(u => answerSig(u.a, u.b) === u.sig); stat.checkMs += performance.now() - t0;
+    if (same) { memo.k = k; return memo; }
+    stat.planned++;
     if (window.PLACES2) bucket = E.applyPlaces(bucket, window.PLACES2);
     // The app's own public transport answers for each ride (asked for any ride not known yet, as in the app).
-    bucket.answers = (a, b) => { const r = transitFor(a, b); return r && r.map(o => ({ id: rideId(o), min: o.min, label: o.label, kind: rideKind(o) })); };
+    const used = new Map();
+    bucket.answers = (a, b) => { const r = answerOf(a, b); used.set(a.lat + "," + a.lng + ">" + b.lat + "," + b.lng, { a, b, sig: JSON.stringify(r) }); return r; };
     let plans; try { plans = E.planTrip(bucket); } catch (e) { console.warn("Beta 2 engine", e); plans = []; }
     // A day still on the app's own seeding (the traveler hasn't ticked or unticked anything there) shows what the
     // engine planned: its ticks become the engine's stops, so the picker, the counts and the plan always agree.
@@ -17720,7 +17753,7 @@ if (typeof window !== "undefined" && window.ENGINE2 && window.KEngine) (function
       d.selected = ids; d.seedSig = seedSigOf(d); d.autoEmpty = !ids.length; synced = true;
     });
     // The bucket is the same after the sync (a seeded day sends only the traveler's own picks), so the plans stand.
-    memo = { k: synced ? keyNow() : k, ik, plans, bucket }; return memo;
+    memo = { k: synced ? keyNow() : k, ik, used, plans, bucket }; return memo;
   }
   window.__kairouteEngine2 = () => JSON.parse(JSON.stringify(tripPlans().plans));
   const MODE = { walk: "walk", ride: "ride", transit: "ride", boat: "ferry", lift: "ride" };
@@ -17773,7 +17806,7 @@ if (typeof window !== "undefined" && window.ENGINE2 && window.KEngine) (function
   buildPlanForDay = function (d) {
     const city = cityFor(d); if (!city) return null;
     const i = trip.days.indexOf(d); if (i < 0) return oldDay(d); // a day outside the trip (a preview): the old planner
-    try { return toApp(d, city, tripPlans().plans[i]); } catch (e) { console.warn("Beta 2 day", e); return oldDay(d); }
+    try { const ep = tripPlans().plans[i]; askRides(ep); return toApp(d, city, ep); } catch (e) { console.warn("Beta 2 day", e); return oldDay(d); }
   };
 })();
 // Last lines of the app: everything in src/main.js and src/features/*.js shares one closure, then the first screen draws.
@@ -17782,4 +17815,4 @@ render();
 
 </script>
 <script>if ("serviceWorker" in navigator) addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));</script>
-<script>(function(){var B="d2bf003-1795022578";function ep(v){return +String(v).split("-").pop()||0}function busy(){return document.body&&document.body.classList.contains("touring-on")}function chk(){if(location.protocol!=="https:"||document.visibilityState!=="visible")return;fetch("version.txt",{cache:"no-store"}).then(function(r){return r.ok?r.text():""}).then(function(t){t=t.trim();if(!t||t===B||ep(t)<=ep(B)||busy())return;var k="kairoute.reloadedTo",s="";try{s=sessionStorage.getItem(k)||"";sessionStorage.setItem(k,t)}catch(e){}if(s===t){var u=new URL(location.href);if(u.searchParams.get("v")===t)return;u.searchParams.set("v",t);location.replace(u.href)}else location.reload()}).catch(function(){})}addEventListener("load",chk);addEventListener("pageshow",function(e){if(e.persisted)chk()});addEventListener("focus",chk);document.addEventListener("visibilitychange",chk);setInterval(chk,300000);if(navigator.serviceWorker)navigator.serviceWorker.addEventListener("message",function(e){if(e.data&&e.data.type==="kairoute-sw"){try{e.source.postMessage({type:"kairoute-alive"})}catch(x){}chk()}})})();</script>
+<script>(function(){var B="9b03247-1795023783";function ep(v){return +String(v).split("-").pop()||0}function busy(){return document.body&&document.body.classList.contains("touring-on")}function chk(){if(location.protocol!=="https:"||document.visibilityState!=="visible")return;fetch("version.txt",{cache:"no-store"}).then(function(r){return r.ok?r.text():""}).then(function(t){t=t.trim();if(!t||t===B||ep(t)<=ep(B)||busy())return;var k="kairoute.reloadedTo",s="";try{s=sessionStorage.getItem(k)||"";sessionStorage.setItem(k,t)}catch(e){}if(s===t){var u=new URL(location.href);if(u.searchParams.get("v")===t)return;u.searchParams.set("v",t);location.replace(u.href)}else location.reload()}).catch(function(){})}addEventListener("load",chk);addEventListener("pageshow",function(e){if(e.persisted)chk()});addEventListener("focus",chk);document.addEventListener("visibilitychange",chk);setInterval(chk,300000);if(navigator.serviceWorker)navigator.serviceWorker.addEventListener("message",function(e){if(e.data&&e.data.type==="kairoute-sw"){try{e.source.postMessage({type:"kairoute-alive"})}catch(x){}chk()}})})();</script>
