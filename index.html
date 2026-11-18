@@ -1587,8 +1587,12 @@ var KEngine = typeof KEngine !== "undefined" ? KEngine : {};
   const GRV = { "αυ": "a", "ευ": "e", "ηυ": "i" };
   const GR1 = { α: "a", β: "v", γ: "g", δ: "d", ε: "e", ζ: "z", η: "i", θ: "th", ι: "i", κ: "k", λ: "l", μ: "m", ν: "n", ξ: "x", ο: "o", π: "p", ρ: "r", σ: "s", ς: "s", τ: "t", υ: "y", φ: "f", χ: "ch", ψ: "ps", ω: "o" };
   const CY = { а: "a", б: "b", в: "v", г: "g", д: "d", е: "e", ё: "yo", ж: "zh", з: "z", и: "i", й: "y", к: "k", л: "l", м: "m", н: "n", о: "o", п: "p", р: "r", с: "s", т: "t", у: "u", ф: "f", х: "kh", ц: "ts", ч: "ch", ш: "sh", щ: "shch", ъ: "", ы: "y", ь: "", э: "e", ю: "yu", я: "ya", і: "i", ї: "yi", є: "ye", ґ: "g", ј: "j", љ: "lj", њ: "nj", ћ: "c", ђ: "dj", џ: "dz" };
+  const latinMemo = new Map();
   E.latin = name => {
     const s0 = String(name == null ? "" : name); if (!/[\u0370-\u03ff\u1f00-\u1fff\u0400-\u04ff]/.test(s0)) return s0;
+    const got = latinMemo.get(s0); if (got != null) return got; const r = latinOf(s0); if (latinMemo.size < 5000) latinMemo.set(s0, r); return r;
+  };
+  const latinOf = s0 => {
     const s = s0.normalize("NFD").replace(/[\u0300-\u036f]/g, "").normalize("NFC");
     let out = "";
     for (let k = 0; k < s.length;) {
@@ -1740,7 +1744,7 @@ if (typeof module !== "undefined") module.exports = KEngine;
   // the time), the same rule the app uses: cheaper, and no traffic. The traveler's own choice always wins.
   E.publicWins = (pub, roadMin) => !(roadMin < pub - 25 && roadMin < pub * 0.67);
   E.makeTravel = (prefs, legModes, legs, lines, answers) => {
-    const walk = (prefs && prefs.walk) || "medium", lim = WALK_LIMIT[walk] || WALK_LIMIT.medium, speed = walk === "low" ? 3.6 : 4.5, modes = legModes || {}, memo = new Map(), memoEnd = new Map();
+    const walk = (prefs && prefs.walk) || "medium", lim = WALK_LIMIT[walk] || WALK_LIMIT.medium, speed = walk === "low" ? 3.6 : 4.5, modes = legModes || {}, memo = new Map(), memoEnd = new Map(), trains = (lines || []).filter(l => l.mode === "train");
     function estimate(a, b) {
       if (!a || !b || !isFinite(a.lat) || !isFinite(b.lat)) return { mode: "walk", how: "Walk", km: 0, min: 0, unknown: true };
       // The cable car (or funicular) between a landing and the town above: its own fixed step holds the time.
@@ -1761,7 +1765,7 @@ if (typeof module !== "undefined") module.exports = KEngine;
       // taken unless a taxi saves a lot (the app's rule, above). A ride to a ship, train
       // or plane keeps its extra time either way.
       if (d > 15) {
-        const t = E.transitOption(a, b, lines.filter(l => l.mode === "train"), km => Math.max(1, Math.round(km * 1.3 / speed * 60)), { km: 12, taxiMin: km => road(km).min });
+        const t = E.transitOption(a, b, trains, km => Math.max(1, Math.round(km * 1.3 / speed * 60)), { km: 12, taxiMin: km => road(km).min });
         if (!t) return leg;
         const sl = leg.slack || 0, tmin = t.min + sl, options = [{ mode: "transit", how: t.how, min: tmin }, { mode: "ride", how: leg.how, min: leg.min }];
         const want = modes[E.pairKey(a, b)];
@@ -1838,6 +1842,12 @@ if (typeof module !== "undefined") module.exports = KEngine;
     const nm = M.stops.map(y => norm(y.name));
     for (let i = 0; i < L.stops.length; i++) { const x = L.stops[i], nx = norm(x.name); for (let j = 0; j < M.stops.length; j++) if (nx === nm[j] || E.hav(x, M.stops[j]) <= SAME_STOP_KM) r.push([i, j]); }
     m.set(M, r); return r; };
+  // Every stop of a set of lines filed by map square (about a kilometre), so the stops near a point are found
+  // without measuring to every stop in the city.
+  const CELL = 0.01, gridMemo = new WeakMap();
+  const gridOf = lines => { let g = gridMemo.get(lines); if (g) return g; g = new Map();
+    lines.forEach((l, li) => l.stops.forEach((st, si) => { if (!isFinite(st.lat)) return; const k = Math.floor(st.lat / CELL) + "," + Math.floor(st.lng / CELL); let c = g.get(k); if (!c) g.set(k, c = []); c.push([li, si]); }));
+    gridMemo.set(lines, g); return g; };
   const ride = (l, i, j) => { const c = cum(l), [a, b] = i < j ? [i, j] : [j, i];
     return Math.round((c[b] - c[a]) / (SPEED[l.mode] || 25) * 60 + 0.5 * (b - a)); };
   // lines: [{ mode, ref, name, stops: [{ name, lat, lng }] in order }]. walkMin(km) -> minutes on foot.
@@ -1845,18 +1855,23 @@ if (typeof module !== "undefined") module.exports = KEngine;
   // from Corinth station), trains run about hourly (half an hour's wait counted), and the option says so.
   E.transitOption = (a, b, lines, walkMin, far) => {
     if (!lines || !lines.length || !a || !b || !isFinite(a.lat) || !isFinite(b.lat)) return null;
-    const near = (p, km) => { const out = []; lines.forEach((l, li) => l.stops.forEach((s, si) => { const d = E.hav(p, s); if (d <= km) out.push({ li, si, d }); })); return out; };
+    const near = (p, km) => { const g = gridOf(lines), out = [], la = Math.floor(p.lat / CELL), lo = Math.floor(p.lng / CELL);
+      const sLa = Math.ceil(km / (111 * CELL)) , sLo = Math.ceil(km / (111 * CELL * Math.max(0.2, Math.cos(p.lat * Math.PI / 180))));
+      for (let x = la - sLa; x <= la + sLa; x++) for (let y = lo - sLo; y <= lo + sLo; y++) { const c = g.get(x + "," + y); if (!c) continue;
+        for (const [li, si] of c) { const d = E.hav(p, lines[li].stops[si]); if (d <= km) out.push({ li, si, d }); } }
+      return out.sort((a, b) => a.li - b.li || a.si - b.si); };
     const reach = far ? far.km : ACCESS_KM, endMin = d => d <= ACCESS_KM ? walkMin(d) : far.taxiMin(d), endWord = (d, nm) => d <= ACCESS_KM ? "" : ", then a taxi " + far.taxiMin(d) + " min";
     const from = near(a, reach).filter(x => !far || x.d <= reach), to = near(b, reach); if (!from.length || !to.length) return null;
     const wait = m => far ? 30 : (WAIT[m] || 6);
     let best = null;
-    const consider = o => { if (!best || o.min < best.min || (o.min === best.min && o.how < best.how)) best = o; };
+    // The label is written only for a ride that beats (or ties) the best so far: most candidates never need one.
+    const consider = (min, mode, legs, how) => { if (best && min > best.min) return; const h = how(); if (!best || min < best.min || h < best.how) best = { min, mode, how: h, legs }; };
     for (const f of from) for (const t of to) {
       const L = lines[f.li], M = lines[t.li];
       if (f.li === t.li) {
         if (f.si === t.si) continue;
         const min = endMin(f.d) + wait(L.mode) + ride(L, f.si, t.si) + endMin(t.d);
-        consider({ min, mode: L.mode, how: (f.d > ACCESS_KM ? "Taxi " + endMin(f.d) + " min to " + E.latin(L.stops[f.si].name) + ", then " : "") + E.transitLabel(L) + ", " + E.latin(L.stops[f.si].name) + " to " + E.latin(M.stops[t.si].name) + endWord(t.d), legs: 1 });
+        consider(min, L.mode, 1, () => (f.d > ACCESS_KM ? "Taxi " + endMin(f.d) + " min to " + E.latin(L.stops[f.si].name) + ", then " : "") + E.transitLabel(L) + ", " + E.latin(L.stops[f.si].name) + " to " + E.latin(M.stops[t.si].name) + endWord(t.d));
         continue;
       }
       // One change: a stop of the first line that is (or stands beside) a stop of the second.
@@ -1864,7 +1879,7 @@ if (typeof module !== "undefined") module.exports = KEngine;
         const x = L.stops[i];
         if (i === f.si || j === t.si) continue;
         const min = endMin(f.d) + wait(L.mode) + ride(L, f.si, i) + CHANGE_MIN + wait(M.mode) + ride(M, j, t.si) + endMin(t.d);
-        consider({ min, mode: L.mode, how: (f.d > ACCESS_KM ? "Taxi " + endMin(f.d) + " min to " + E.latin(L.stops[f.si].name) + ", then " : "") + E.transitLabel(L) + " to " + E.latin(x.name) + ", then " + E.transitLabel(M) + " to " + E.latin(M.stops[t.si].name) + endWord(t.d), legs: 2 });
+        consider(min, L.mode, 2, () => (f.d > ACCESS_KM ? "Taxi " + endMin(f.d) + " min to " + E.latin(L.stops[f.si].name) + ", then " : "") + E.transitLabel(L) + " to " + E.latin(x.name) + ", then " + E.transitLabel(M) + " to " + E.latin(M.stops[t.si].name) + endWord(t.d));
       }
     }
     return best;
@@ -17592,6 +17607,7 @@ function sightTags(city, s) {
   if (s.srcOnly && !s.guide) out.push("no-story-yet");
   return out;
 }
+const wishIds = (d, city) => { try { return city && typeof wantIds === "function" ? wantIds(d, city) : []; } catch (e) { return []; } };
 function engineBucket(withOld) {
   const n = v => (isFinite(+v) ? +v : null);
   const pt = p => p ? { id: p.id || null, name: p.name || "", lat: n(p.lat), lng: n(p.lng), unknown: !!p.unknown || (typeof unsurePoint === "function" && unsurePoint(p)) } : null;
@@ -17626,7 +17642,9 @@ function engineBucket(withOld) {
       lodging: pt(L), point: pt(P),
       // The traveler's picks only: a list the app seeded on its own (untouched since: seedSig still matches) is the app's
       // suggestion, not the traveler's wish, so the engine picks for itself and keeps only what they chose (mine).
-      selected: Array.isArray(d.selected) ? (d.seedSig && typeof seedSigOf === "function" && d.seedSig === seedSigOf(d) ? (d.mine || []).slice() : d.selected.slice()) : null, mine: (d.mine || []).slice(), order: Array.isArray(d.order) ? d.order.slice() : null,
+      // A day not seeded yet sends the sights the traveler named when making the trip (their wishes), as seeding would.
+      selected: Array.isArray(d.selected) ? (d.seedSig && typeof seedSigOf === "function" && d.seedSig === seedSigOf(d) ? (d.mine || []).slice() : d.selected.slice()) : wishIds(d, city),
+      mine: Array.isArray(d.selected) ? (d.mine || []).slice() : [...new Set((d.mine || []).concat(wishIds(d, city)))], order: Array.isArray(d.order) ? d.order.slice() : null,
       cleared: clearedByYou(d), rain: !!d.rain, alongWay: d.alongWay !== false, fillTime: d.fillTime !== false, skipBonus: (d.skipBonus || []).slice(),
       booked: bookedMeals(d, city || {}).map(m => ({ label: m.label, from: m.from, len: m.len, place: pt(m.node) })),
       locked: d.ready && d.ready.lock && Array.isArray(d.ready.lock.seq) ? { t: d.ready.lock.t, seq: d.ready.lock.seq.filter(x => !x.meal).map(x => x.id).filter(Boolean) } : null,
@@ -17678,7 +17696,12 @@ if (typeof window !== "undefined" && window.ENGINE2 && window.KEngine) (function
   function tripPlans() {
     const k = keyNow();
     if (memo.k === k && memo.plans) return memo;
+    // The plans depend only on what the engine is given (the bucket) and the ride answers known so far. Most changes
+    // to the trip or answers arriving (weather, a photo, the day being looked at) leave both as they were: then the
+    // plans stand and nothing is planned again. Only a real change of the engine's inputs replans.
     let bucket = engineBucket(false);
+    const ik = strHash(JSON.stringify(bucket)) + "|" + (typeof nearGen !== "undefined" ? nearGen : 0) + "|" + todayISO(); // the places files never change while the app runs
+    if (memo.ik === ik && memo.plans) { memo.k = k; return memo; }
     if (window.PLACES2) bucket = E.applyPlaces(bucket, window.PLACES2);
     // The app's own public transport answers for each ride (asked for any ride not known yet, as in the app).
     bucket.answers = (a, b) => { const r = transitFor(a, b); return r && r.map(o => ({ id: rideId(o), min: o.min, label: o.label, kind: rideKind(o) })); };
@@ -17687,13 +17710,17 @@ if (typeof window !== "undefined" && window.ENGINE2 && window.KEngine) (function
     // engine planned: its ticks become the engine's stops, so the picker, the counts and the plan always agree.
     let synced = false;
     trip.days.forEach((d, i) => {
-      const ep = plans[i]; if (!ep || ep.error || !Array.isArray(ep.items) || d.ready || !d.seedSig || d.seedSig !== seedSigOf(d)) return;
+      const ep = plans[i], fresh = !Array.isArray(d.selected);
+      if (!ep || ep.error || !Array.isArray(ep.items) || d.ready || (!fresh && (!d.seedSig || d.seedSig !== seedSigOf(d)))) return;
       const ids = ep.items.filter(x => x.t === "stop" && x.id != null).map(x => x.id);
-      if (ids.map(String).sort().join("|") === d.selected.map(String).sort().join("|")) return;
+      // A day not seeded yet is seeded here, from the engine's plan (the old planner's background seeding then has
+      // nothing left to do): the sights the traveler named become theirs, as seeding does.
+      if (fresh) { const c = cityFor(d); if (!c) return; const w = (typeof wantIds === "function" ? wantIds(d, c) : []); d.selected = []; w.forEach(id => markMine(d, id, true)); }
+      else if (ids.map(String).sort().join("|") === d.selected.map(String).sort().join("|")) return;
       d.selected = ids; d.seedSig = seedSigOf(d); d.autoEmpty = !ids.length; synced = true;
     });
     // The bucket is the same after the sync (a seeded day sends only the traveler's own picks), so the plans stand.
-    memo = { k: synced ? keyNow() : k, plans, bucket }; return memo;
+    memo = { k: synced ? keyNow() : k, ik, plans, bucket }; return memo;
   }
   window.__kairouteEngine2 = () => JSON.parse(JSON.stringify(tripPlans().plans));
   const MODE = { walk: "walk", ride: "ride", transit: "ride", boat: "ferry", lift: "ride" };
@@ -17755,4 +17782,4 @@ render();
 
 </script>
 <script>if ("serviceWorker" in navigator) addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));</script>
-<script>(function(){var B="8de90cd-1795021272";function ep(v){return +String(v).split("-").pop()||0}function busy(){return document.body&&document.body.classList.contains("touring-on")}function chk(){if(location.protocol!=="https:"||document.visibilityState!=="visible")return;fetch("version.txt",{cache:"no-store"}).then(function(r){return r.ok?r.text():""}).then(function(t){t=t.trim();if(!t||t===B||ep(t)<=ep(B)||busy())return;var k="kairoute.reloadedTo",s="";try{s=sessionStorage.getItem(k)||"";sessionStorage.setItem(k,t)}catch(e){}if(s===t){var u=new URL(location.href);if(u.searchParams.get("v")===t)return;u.searchParams.set("v",t);location.replace(u.href)}else location.reload()}).catch(function(){})}addEventListener("load",chk);addEventListener("pageshow",function(e){if(e.persisted)chk()});addEventListener("focus",chk);document.addEventListener("visibilitychange",chk);setInterval(chk,300000);if(navigator.serviceWorker)navigator.serviceWorker.addEventListener("message",function(e){if(e.data&&e.data.type==="kairoute-sw"){try{e.source.postMessage({type:"kairoute-alive"})}catch(x){}chk()}})})();</script>
+<script>(function(){var B="d2bf003-1795022578";function ep(v){return +String(v).split("-").pop()||0}function busy(){return document.body&&document.body.classList.contains("touring-on")}function chk(){if(location.protocol!=="https:"||document.visibilityState!=="visible")return;fetch("version.txt",{cache:"no-store"}).then(function(r){return r.ok?r.text():""}).then(function(t){t=t.trim();if(!t||t===B||ep(t)<=ep(B)||busy())return;var k="kairoute.reloadedTo",s="";try{s=sessionStorage.getItem(k)||"";sessionStorage.setItem(k,t)}catch(e){}if(s===t){var u=new URL(location.href);if(u.searchParams.get("v")===t)return;u.searchParams.set("v",t);location.replace(u.href)}else location.reload()}).catch(function(){})}addEventListener("load",chk);addEventListener("pageshow",function(e){if(e.persisted)chk()});addEventListener("focus",chk);document.addEventListener("visibilitychange",chk);setInterval(chk,300000);if(navigator.serviceWorker)navigator.serviceWorker.addEventListener("message",function(e){if(e.data&&e.data.type==="kairoute-sw"){try{e.source.postMessage({type:"kairoute-alive"})}catch(x){}chk()}})})();</script>
