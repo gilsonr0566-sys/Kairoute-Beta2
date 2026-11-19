@@ -377,6 +377,8 @@ body.dragging-on { user-select: none; -webkit-user-select: none; }
 .tl .what .sub.bonus { color: var(--route); font-weight: 600; }
 .dot.bonusdot { border-style: dashed; border-width: 2.5px; color: var(--route); font-size: 16px; }
 .tl.optional .what .nm { color: var(--muted); }
+.optacts .mustadd { border: 2px solid var(--accent, #f39c12); font-weight: 700; }
+.optacts .mustlbl { display: inline-block; background: var(--accent, #f39c12); color: #111; border-radius: 6px; padding: 1px 6px; margin-right: 4px; font-size: .85em; font-weight: 800; }
 .ridechips .ridechip { max-width: 100%; white-space: normal; text-align: left; }
 .tl .optacts { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 6px; }
 /* Big stops: what's there, part by part */
@@ -1641,7 +1643,7 @@ if (typeof module !== "undefined") module.exports = KEngine;
       // Public transport lines mapped around the place: every leg they serve offers them (part 1b).
       if ((P.transit || []).length) b.transit = (b.transit || []).concat(P.transit);
       // Ferry piers as mapped: a boat leaves from a pier and lands at one, never from a church in the old town (Nov 18,
-      // Naples: the ferry to Capri was drawn from the cathedral, across the streets).
+      // a ferry to an island was drawn from a cathedral, across the streets).
       const piers = (P.ports || []).filter(x => !x.cruise && /ferry|pier/i.test(String(x.kind || ""))).concat(P.piers || []).filter(x => isFinite(x.lat) && isFinite(x.lng));
       if (piers.length) b.piers = (b.piers || []).concat(piers.map(x => ({ name: E.latin(x.name) || "the ferry pier", lat: x.lat, lng: x.lng })));
       for (const s of city.sites || []) {
@@ -1722,12 +1724,19 @@ if (typeof module !== "undefined") module.exports = KEngine;
     return b;
   };
 })(KEngine);
-// Beta 2 engine, part 1: minutes between two places.
-// Two kinds of answer, kept apart on purpose (lesson 1: plans drifted as ride answers arrived):
-//  - estimate(a, b): the stable estimate from distance, the traveler's walking limit, their walk-or-ride choice and the
-//    guide's own ride note. Used for every decision: which sights fit, which day, what order. It never changes as
-//    answers arrive, so the plan's shape never does.
-//  - live times (real timetables) only set the clock in the timeline (part 9), and can only flag a stop, not reorder.
+// Beta 2 engine, part 1: the rides between two places. ONE layer (Nov 18 night, Richard: "we are making layers again";
+// the ride code had grown a patch for each bug: guide-text rides, stitched routes, relabelled choices). Every ride is
+// built here and only here, the same way everywhere:
+//  - A short list of real ways to go, at most one of each kind: walk, metro, tram, train, bus, ferry, taxi. Each comes
+//    from data: the walking distance, the timetable answers the app has (the same answers the demo used), the lines
+//    mapped on OpenStreetMap, the mapped ferry piers, the road. Never from a guess or a route stitched together.
+//  - Each way has one label that names what it is (its kind sets its icon and how the map draws it) and its steps.
+//  - The guide's own words about getting there are a note beside the ride, never a ride of their own. Where the guide
+//    names a train or bus the data doesn't have, the note says so plainly ("A local train may run: check at the station").
+//  - The traveler's choice for a ride always holds; when it can't (that way isn't known for this ride), the ride says why.
+//  - Time for the ship (or a train or plane) is added in one place, the same for every way.
+// Two kinds of answer stay apart on purpose (lesson 1: plans drifted as ride answers arrived): the plan's shape is
+// decided with these times, and live times only set the clock in the timeline (part 9).
 (function (E) {
   E.PIER_MIN = 15; // at the pier: buying a ticket, boarding, and the wait for the next sailing
   E.BOAT = /\b(boat|boats|ferry|ferries|hydrofoil|catamaran|water ?bus|vaporetto)\b/i;
@@ -1737,31 +1746,18 @@ if (typeof module !== "undefined") module.exports = KEngine;
   // Seen only from the water (an islet, a sea cave): its access or tickets say so.
   E.waterOnly = s => !!s && /\b(viewed|seen|viewable|visible) from (the )?(water|sea|a boat|boat)|\bonly (by|from) (boat|sea)\b|\bboat tours? only\b/i.test(String(s.access || ""));
   E.byBoat = note => { const n = String(note || "").replace(/water ?taxi/gi, "boat"); return E.BOAT.test(n) && !LAND.test(n); };
-  // Every way a guide's ride note names, each with its own time: "40 minutes by ferry, or 1 hour on the Circumvesuviana
-  // train" is a ferry (40 min) and a train (60 min), not one ride of an hour. A way named without a time ("or by car")
-  // is a ride by road, timed like any other. [{ id: "boat" | "transit" | "taxi", kind, how, said }]
-  E.noteWays = note => {
-    const out = [];
-    for (const part of String(note || "").split(/;|,?\s+\bor\b\s+|\.\s+/i)) {
-      const c = part.replace(/water ?taxi/gi, "boat"), said = saidMin(c);
-      if (E.BOAT.test(c)) out.push({ id: "boat", kind: "ferry", how: /high.?speed|fast ferry|hydrofoil|catamaran/i.test(c) ? "Fast ferry" : /ferry|ferries/i.test(c) ? "Ferry" : "Boat", said });
-      else if (/\b(train|rail|railway|metro|tram)\b/i.test(c)) { const nm = /\b([A-Z][\w'-]+)\s+(train|railway|line)\b/.exec(c); out.push({ id: "transit", kind: "train", how: nm && !/^(The|A|An|By|On|Take|Fast|Slow|Regional|Local)$/.test(nm[1]) ? nm[1] + " train" : "Train", said }); }
-      else if (/\b(bus|coach)\b/i.test(c)) out.push({ id: "transit", kind: "bus", how: "Bus", said });
-      else if (/\b(car|taxi|cab|drive|road)\b/i.test(c.replace(/cable ?cars?|funiculars?|rack railway/gi, ""))) out.push({ id: "taxi", kind: "car", how: "Taxi or car", said });
-    }
-    // One of each way (the quickest named), timed ones only for public transport.
-    const seen = new Map(); for (const w of out) { const k = w.id + w.kind, o = seen.get(k); if (!o || (w.said && (!o.said || w.said < o.said))) seen.set(k, w); }
-    return [...seen.values()];
-  };
+  // The kinds of public transport a guide's note names ("by train and shuttle bus" -> train, bus). Read only to say
+  // when the data has no such ride; the note never makes a ride itself.
+  E.noteKinds = note => { const n = String(note || "").replace(/cable ?cars?|funiculars?|rack railway/gi, ""), out = [];
+    if (/\b(train|trains|rail|railway|circumvesuviana)\b/i.test(n)) out.push("train"); if (/\b(metro|subway|underground)\b/i.test(n)) out.push("metro");
+    if (/\b(tram|trams)\b/i.test(n)) out.push("tram"); if (/\b(bus|buses|coach|shuttle)\b/i.test(n)) out.push("bus"); if (E.BOAT.test(n.replace(/water ?taxi/gi, "boat"))) out.push("ferry"); return out; };
   const WALK_LIMIT = { low: 0.8, medium: 1.7, high: 3.2 }, WALK_EITHER = 4;
-  // By road (taxi, car or bus) for d km as the crow flies: town streets, regional roads, then highway.
+  // By road (taxi or car) for d km as the crow flies: town streets, regional roads, then highway.
   function road(d) {
-    if (d <= 6) return { mode: "ride", how: "Taxi or car", km: d * 1.3, min: Math.round(10 + d * 1.3 / 22 * 60) };
-    if (d <= 15) return { mode: "ride", how: "Taxi or car", km: d * 1.3, min: Math.round(10 + d * 1.3 / 25 * 60) };
-    return d <= 40 ? { mode: "ride", how: "Train or car", km: d * 1.35, min: Math.round(15 + d * 1.35 / 45 * 60) }
-      : { mode: "ride", how: "Train or car", km: d * 1.25, min: Math.round(15 + d * 1.25 / 85 * 60) };
+    const k = d <= 15 ? 1.3 : d <= 40 ? 1.35 : 1.25, v = d <= 6 ? 22 : d <= 15 ? 25 : d <= 40 ? 45 : 85, add = d <= 15 ? 10 : 15;
+    return { km: d * k, min: Math.round(add + d * k / v * 60) };
   }
-  // The longest time a guide's ride note names ("1 hour on the train", "60-75 min"), 10 to 300 minutes, else 0.
+  // The longest time a guide's note names ("1 hour on the train", "60-75 min"), 10 to 300 minutes, else 0.
   function saidMin(note) {
     const low = String(note || "").toLowerCase(); if (!low) return 0; let m = 0;
     for (const x of low.matchAll(/(\d+(?:\.\d+)?)\s*(?:-|–|to)\s*(\d+(?:\.\d+)?)\s*(hours?|hrs?|h\b|minutes?|mins?\b|min\b)/g)) m = Math.max(m, +x[2] * (/^h/.test(x[3]) ? 60 : 1));
@@ -1769,13 +1765,6 @@ if (typeof module !== "undefined") module.exports = KEngine;
     for (const x of low.matchAll(/(\d+)\s*h(?:ours?|rs?)?\s*(\d+)\s*m/g)) m = Math.max(m, +x[1] * 60 + +x[2]);
     return m >= 10 && m <= 300 ? Math.round(m) : 0;
   }
-  // A travel calculator for one trip's preferences. Pure and memoised per pair (the same pair always gives the same answer).
-  // legs: pinned network times from the places database, keyed by pairKey (step change, Nov 18: decisions use real
-  // walking, road and ferry times, pinned so they stay steady; the straight-line estimate is only the fallback).
-  // lines: public transport lines from the places files (part 1b); every leg they serve offers them as a choice.
-  // answers(a, b): the app's own public transport answers for a ride, as the app keeps them (a timetable search per ride,
-  // [{ min, label, kind }]), or null. A known line is taken unless a taxi saves a lot (over 25 minutes and a third of
-  // the time), the same rule the app uses: cheaper, and no traffic. The traveler's own choice always wins.
   // The public way wins unless a taxi saves a great deal: over 40 minutes and over 40% of the ride (Nov 18, Richard:
   // the Circumvesuviana from Sorrento to Pompeii, 1 h 13, lost to a 46-minute taxi; he wants the trains).
   E.publicWins = (pub, roadMin) => !(roadMin < pub - 40 && roadMin < pub * 0.6);
@@ -1787,185 +1776,162 @@ if (typeof module !== "undefined") module.exports = KEngine;
   E.PIER_AT = 0.3;  // within this of a pier is at the water already
   E.PIER_KM = 40;   // farthest a pier may be from where the traveler is to take a boat from it
   E.PIER_ISLAND = 5; // farthest the pier of a place reached by boat may be from it (on the same island)
+  // How each kind of ride is made, drawn and shown: mode is what the timeline and the map read (walk, ride = by road,
+  // transit = on rails or a bus, boat), and every kind has its own icon in the app.
+  E.RIDE_KINDS = Object.freeze(["walk", "metro", "tram", "train", "bus", "ferry", "taxi"]);
+  E.modeOfKind = k => k === "walk" ? "walk" : k === "taxi" ? "ride" : k === "ferry" ? "boat" : "transit";
+  // A choice saved before the kinds were named (the app kept "transit", "boat", "ride" or a timetable row's own id).
+  const OLD_CHOICE = { ride: "taxi", boat: "ferry" };
+  // How many changes a timetable answer has, from its steps or its label ("M3 + 1 change").
+  const changesOf = o => Array.isArray(o.steps) && o.steps.length ? o.steps.length - 1 : +((/\+\s*(\d+)\s+change/.exec(o.label || "") || [0, 0])[1]);
+  // The guide's note on how to get out to a place is read only for a ride between the place and where the day is based
+  // (a ride from one trip out to another is planned from the map, never from either note).
+  const noteFor = (a, b) => a.travelNote && !b.travelNote ? a.travelNote : b.travelNote && !a.travelNote ? b.travelNote : "";
+  // A travel calculator for one trip's preferences. Pure and memoised per pair (the same pair always gives the same answer).
+  // legs: pinned network times from the places database, keyed by pairKey (walking, road and ferry times).
+  // lines: public transport lines from the places files (part 1b).
+  // answers(a, b): the app's own timetable answers for a ride ([{ id, min, label, mode, steps, access, egress, ... }]),
+  // or null. piers: every pier a boat may use.
   E.makeTravel = (prefs, legModes, legs, lines, answers, piers) => {
-    const walk = (prefs && prefs.walk) || "medium", lim = WALK_LIMIT[walk] || WALK_LIMIT.medium, speed = walk === "low" ? 3.6 : 4.5, modes = legModes || {}, memo = new Map(), memoEnd = new Map(), trains = (lines || []).filter(l => l.mode === "train");
+    const walk = (prefs && prefs.walk) || "medium", lim = WALK_LIMIT[walk] || WALK_LIMIT.medium, speed = walk === "low" ? 3.6 : 4.5, modes = legModes || {}, memo = new Map(), memoEnd = new Map();
+    const walkMinOf = km => Math.max(1, Math.round(km * 1.3 / speed * 60));
     // The traveler's ride choice belongs to the two places, whichever way the day goes between them (Nov 18: the train
-    // picked from Sorrento to Pompeii was lost when the day ran Pompeii first).
-    // A ride from the lunch place next door, or from a sight beside the place, is still that ride: a choice also holds
-    // for any two points each within a short walk (1.5 km) of its two places, on a ride long enough to need one (over 5 km).
+    // picked from Sorrento to Pompeii was lost when the day ran Pompeii first). A choice also holds for any two points
+    // each within a short walk (1.5 km, or a fifth of the ride) of its two places, on a ride over 5 km; one made the
+    // same way round wins, then the closest.
     const chosenPairs = Object.keys(modes).map(k => { const v = k.split(",").map(Number); return v.length === 4 && v.every(isFinite) ? { a: { lat: v[0], lng: v[1] }, b: { lat: v[2], lng: v[3] }, m: modes[k] } : null; }).filter(Boolean);
     const modeOf = (a, b) => { const k = modes[E.pairKey(a, b)]; if (k != null) return k; const r = modes[E.pairKey(b, a)]; if (r != null) return r;
       if (!chosenPairs.length || !a || !b || E.hav(a, b) < 5) return undefined;
-      // (each end within 1.5 km, or a fifth of the ride: the ride out to a town 80 km away and its sights around it is the same from any hotel in the city)
-      // When several choices are near enough, one made the same way round wins, then the closest (the ferry picked out to
-      // a town never decides the ride back from it, when the traveler chose that ride too).
       const tol = Math.max(1.5, E.hav(a, b) / 5), pickOf = dist => { let best = null, bestD = Infinity; for (const p of chosenPairs) { const d = dist(p); if (d <= tol && d < bestD) { best = p; bestD = d; } } return best; };
       const best = pickOf(p => Math.max(E.hav(p.a, a), E.hav(p.b, b))) || pickOf(p => Math.max(E.hav(p.a, b), E.hav(p.b, a)));
       return best ? best.m : undefined; };
     function estimate(a, b) {
-      if (!a || !b || !isFinite(a.lat) || !isFinite(b.lat)) return { mode: "walk", how: "Walk", km: 0, min: 0, unknown: true };
+      if (!a || !b || !isFinite(a.lat) || !isFinite(b.lat)) return { mode: "walk", kind: "walk", how: "Walk", km: 0, min: 0, unknown: true };
       // The cable car (or funicular) between a landing and the town above: its own fixed step holds the time.
       const lift = (p, q) => p.viaLift && E.hav(q, p.viaLift) < 0.05;
-      if (lift(a, b) || lift(b, a)) return { mode: "lift", how: (a.viaLift || b.viaLift).name || "Cable car", km: 0, min: 0 };
+      if (lift(a, b) || lift(b, a)) return { mode: "lift", kind: "train", how: (a.viaLift || b.viaLift).name || "Cable car", km: 0, min: 0 };
       // Remembered by the four coordinates (numbers make fast keys), apart for legs that end at a deadline.
       let m = (b.backToShip || b.deadline) ? memoEnd : memo;
       for (const x of [a.lat, a.lng, b.lat]) { let n = m.get(x); if (!n) { n = new Map(); m.set(x, n); } m = n; }
       const got = m.get(b.lng); if (got) return got;
       const v = Object.freeze(calc(a, b)); m.set(b.lng, v); return v;
     }
-    // The leg as planned, plus every way to make it (walk, public transport, taxi) so the traveler can choose.
-    function calc(a, b) {
-      const leg0 = base(a, b), d = E.hav(a, b), leg = known(a, b, leg0, d);
-      if (leg !== leg0) return leg;
-      if (!lines || !lines.length || d < 0.6 || leg.pinned || leg.mode === "boat" || leg.mode === "lift" || (leg.said && leg.options)) return leg; // the guide's own ways stand
-      // A day trip out of town: a train that serves both ends (a taxi from the station at either end) is offered, and
-      // taken unless a taxi saves a lot (the app's rule, above). A ride to a ship, train
-      // or plane keeps its extra time either way.
-      if (d > 15) {
-        const t = E.transitOption(a, b, trains, km => Math.max(1, Math.round(km * 1.3 / speed * 60)), { km: 12, taxiMin: km => road(km).min });
-        if (!t) return leg;
-        const sl = leg.slack || 0, tmin = t.min + sl, options = [{ id: "transit", mode: "transit", kind: "train", how: t.how, min: tmin }, { id: "taxi", mode: "ride", kind: "car", how: leg.how, min: leg.min }];
-        const want = modeOf(a, b);
-        if (want === "ride" || want === "taxi" || (want !== "transit" && !E.publicWins(tmin, leg.min))) return Object.assign(leg, { options, choice: "taxi" });
-        return { mode: "transit", transitMode: t.mode, how: t.how, km: leg.km, min: tmin, slack: sl || undefined, options, choice: "transit" };
-      }
-      const walkMin = km => Math.max(1, Math.round(km * 1.3 / speed * 60)), onFoot = walkMin(d);
-      // A leg short enough to walk offers the line only when it is quicker than walking; a leg too far to walk weighs it
-      // against the taxi instead (an uphill walk from the station can make it slower than the whole walk, never than a taxi).
-      const t = E.transitOption(a, b, lines, walkMin); if (!t || (leg.mode !== "ride" && t.min >= onFoot)) return leg;
-      const taxi = road(d), want = modeOf(a, b);
-      const options = [{ id: "walk", mode: "walk", kind: "walk", how: "Walk", min: onFoot }, { id: "transit", mode: "transit", kind: t.mode === "tram" ? "tram" : "train", how: t.how, min: t.min }, { id: "taxi", mode: "ride", kind: "car", how: taxi.how, min: taxi.min }];
-      // Too far to walk: public transport is taken unless a taxi saves a lot (the same rule as everywhere: cheaper, no
-      // traffic); the traveler's own choice always wins.
-      const tooFar = leg.mode === "ride" && want !== "ride" && want !== "taxi" && want !== "walk" && E.publicWins(t.min, taxi.min);
-      if (want === "transit" || tooFar) return { mode: "transit", transitMode: t.mode, how: t.how, km: d * 1.3, min: t.min, either: true, options, choice: "transit" };
-      return Object.assign(leg, { options, either: true, choice: leg.mode === "walk" ? "walk" : "taxi" });
+    // The timetable answers for a ride, one per kind: the quickest, or one with fewer changes at most 10 minutes slower,
+    // or the very row the traveler chose (Nov 18, Athens airport: three rows of the same metro ride).
+    function answered(a, b, d, want) {
+      if (!answers || d < 1.5) return [];
+      const got = (answers(a, b) || []).filter(o => o && isFinite(o.min)).slice().sort((x, y) => x.min - y.min || String(x.label).localeCompare(String(y.label)));
+      const by = new Map();
+      for (const o of got) { const k = E.lineKind(String(o.mode || o.kind || "train")), r = by.get(k);
+        if (!r) { by.set(k, o); continue; } if (want != null && String(r.id) === String(want)) continue;
+        if ((want != null && String(o.id) === String(want)) || (changesOf(o) < changesOf(r) && o.min <= r.min + 10)) by.set(k, o); }
+      return [...by.entries()].map(([kind, o]) => ({ id: kind, kind, how: E.latin(o.label), min: Math.round(o.min), ans: o, steps: Array.isArray(o.steps) ? o.steps.map(E.latin) : [] }));
     }
-    function known(a, b, leg, d) {
-      if (!answers || d < 1.5 || leg.pinned || leg.mode === "boat" || leg.mode === "lift" || leg.mode === "walk") return leg;
-      const got = (answers(a, b) || []).filter(o => o && isFinite(o.min)).sort((x, y) => x.min - y.min || String(x.label).localeCompare(String(y.label)));
-      if (!got.length) return leg;
-      const want = modeOf(a, b), sl = leg.slack || 0;
-      // The guide's own ways for this ride (a ferry, the train its note names) stay choices beside the timetable answers,
-      // and the taxi is the taxi by road, never the guide's train under a taxi's name (Nov 18, Naples: with a timetable
-      // answer the Circumvesuviana was shown as "Taxi or car, 55 min" and the train the traveler tapped was refused).
-      const own = (leg.options || []).filter(x => x.mode !== "ride");
-      const taxiOpt = (leg.options || []).find(x => x.mode === "ride") || (leg.mode === "ride" ? { id: "taxi", mode: "ride", kind: "car", how: "Taxi or car", min: leg.min } : null);
-      const taxiLeg = taxiOpt ? (leg.mode === "ride" ? leg : Object.assign(road(d), { min: taxiOpt.min })) : null;
-      const answersOpt = got.slice(0, 3).map(x => ({ id: x.id != null ? String(x.id) : "transit", mode: "transit", transitMode: x.kind, kind: x.kind, how: E.latin(x.label), min: x.min + sl, ans: x }));
-      const options = answersOpt.map(({ ans, ...o }) => o).concat(own.filter(x => !answersOpt.some(y => y.id === x.id)), taxiOpt ? [{ id: "taxi", mode: "ride", kind: "car", how: "Taxi or car", min: taxiOpt.min }] : []);
-      const asTaxi = () => Object.assign({}, taxiLeg, { how: "Taxi or car", options, choice: "taxi" });
-      const asAnswer = x => ({ mode: "transit", transitMode: x.ans.kind, how: E.latin(x.ans.label), km: leg.km, min: x.min, slack: sl || undefined, options, choice: x.id });
-      const asOwn = x => { const o = Object.assign({}, leg, { mode: x.mode, how: x.how, min: x.min, options, choice: x.id }, x.mode === "boat" ? { cross: x.cross, pier: E.PIER_MIN, timetable: true } : { transitMode: x.transitMode || x.kind });
-        if (x.parts) o.parts = x.parts; else delete o.parts; return o; };
-      // The traveler's own choice first, whichever list it is in.
-      if ((want === "taxi" || want === "ride") && taxiLeg) return asTaxi();
-      const wa = answersOpt.find(x => x.id === want); if (wa) return asAnswer(wa);
-      const wo = own.find(x => x.id === want); if (wo) return asOwn(wo);
-      // Else the quickest public way, unless a taxi saves a great deal (the app's rule).
-      const pubs = answersOpt.map(x => ({ x, min: x.min, t: "a" })).concat(own.map(x => ({ x, min: x.min, t: "o" }))).sort((p, q) => p.min - q.min || String(p.x.id).localeCompare(String(q.x.id)));
-      const best = pubs[0];
-      if (taxiLeg && !E.publicWins(best.min, taxiOpt.min)) return asTaxi();
-      return best.t === "a" ? asAnswer(best.x) : asOwn(best.x);
-    }
-    // A boat leaves from a pier and lands at one (Nov 18, Naples: the ferry to Capri left from the cathedral and ran
-    // across the streets, and on to Pompeii, inland, by ferry). Between a place reached by boat and anywhere else, the
-    // boat runs from the mapped pier nearest the other end to the mapped pier nearest the boat's place, and the way to or
-    // from each pier (a walk, a train, a taxi) is a ride of its own, on the plan and on the map. boatEnd: the end the boat
-    // goes to or comes from (the place whose note names it). Returns { parts, min } (the rides before and after the boat,
-    // in order, and their minutes) or null when both ends are at the water already or no pier is known near them (then
-    // the boat runs between the two places, as the guide's note says).
+    // A boat leaves from a pier and lands at one (Nov 18, Richard's map: the ferry to an island left from a cathedral and
+    // ran across the streets). The boat runs from the mapped pier nearest the land end (or the pier the guide's note
+    // names) to the pier nearest the boat's place, and the way to or from each pier is a ride of its own. Returns
+    // { parts, min, from, to } or null when both ends are at the water already or no pier is known near them.
     const pierList = (piers || []).filter(p => p && isFinite(p.lat));
     const nearestPier = (p, km) => { let best = null, bd = Infinity; for (const q of pierList) { const d = E.hav(p, q); if (d < bd || (d === bd && best && String(q.name) < String(best.name))) { best = q; bd = d; } } return best && bd <= km ? { q: best, d: bd } : null; };
     const plainPt = p => ({ lat: p.lat, lng: p.lng });
-    const groundOf = (g, pierName, to) => Object.assign({ mode: g.mode, how: g.how, min: g.min, km: g.km || 0, pierName }, g.transitMode ? { transitMode: g.transitMode } : {}, g.slack ? { slack: g.slack } : {}, to ? { to } : {});
+    const groundOf = (g, pierName, toPier, to) => Object.assign({ mode: g.mode, kind: g.kind, how: g.how + (toPier ? " to the ferry at " : " from the ferry at ") + pierName, min: g.min, km: g.km || 0, pierName, steps: g.steps || [] },
+      g.transitMode ? { transitMode: g.transitMode } : {}, g.slack ? { slack: g.slack } : {}, g.ans ? { ans: g.ans } : {}, to ? { to } : {});
     function pierLeg(a, b, boatEnd) {
       const land = boatEnd === b ? a : b; if (!pierList.length || !land || land.viaLift || boatEnd.viaLift) return null;
-      // The pier the guide's note names ("by fast ferry from Molo Beverello") is the one, when it is mapped nearby.
       const said = String(boatEnd.travelNote || "").toLowerCase(), base = n => String(n || "").replace(/\s*\(.*?\)\s*/g, " ").trim().toLowerCase();
       const named = pierList.filter(q => base(q.name).length >= 5 && said.includes(base(q.name)) && E.hav(land, q) <= E.PIER_KM).sort((x, y) => E.hav(land, x) - E.hav(land, y))[0];
       const lp = named ? { q: named, d: E.hav(land, named) } : nearestPier(land, E.PIER_KM), bp = nearestPier(boatEnd, E.PIER_ISLAND);
       const useL = lp && lp.d >= E.PIER_AT, useB = bp && bp.d >= E.PIER_AT && (!lp || E.hav(lp.q, bp.q) > 1);
       if (!useL && !useB) return null;
-      const L = useL ? { lat: lp.q.lat, lng: lp.q.lng } : null, B = useB ? { lat: bp.q.lat, lng: bp.q.lng } : null;
-      // The ride on land to (or from) the pier is planned as any ride from that place (its own note, its trains); on the
-      // island the pier and the place are on the same land, so it is a walk or a ride, never another boat.
-      const out = boatEnd === b;
+      const L = useL ? { lat: lp.q.lat, lng: lp.q.lng } : null, B = useB ? { lat: bp.q.lat, lng: bp.q.lng } : null, out = boatEnd === b;
+      // The ride on land to (or from) the pier is planned as any ride (walk, its lines, a taxi); on the island the pier
+      // and the place are on the same land, so it is a walk or a ride, never another boat.
       const gL = useL ? (out ? estimate(a, L) : estimate(L, b)) : null, gB = useB ? (out ? estimate(B, plainPt(b)) : estimate(plainPt(a), B)) : null;
+      const from = out ? (lp && lp.q.name) : (bp && bp.q.name), at = out ? (bp && bp.q.name) : (lp && lp.q.name);
       const boat = { boat: true, from: out ? (useL ? lp.q.name : null) : (useB ? bp.q.name : null), at: out ? (useB ? bp.q.name : null) : (useL ? lp.q.name : null) };
-      const parts = out ? [gL && groundOf(gL, lp.q.name, L), Object.assign(boat, useB ? { to: B } : {}), gB && groundOf(gB, bp.q.name)]
-        : [gB && groundOf(gB, bp.q.name, B), Object.assign(boat, useL ? { to: L } : {}), gL && groundOf(gL, lp.q.name)];
-      return { parts: parts.filter(Boolean), min: (gL ? gL.min : 0) + (gB ? gB.min : 0) };
+      const parts = out ? [gL && groundOf(gL, lp.q.name, true, L), Object.assign(boat, useB ? { to: B } : {}), gB && groundOf(gB, bp.q.name, false)]
+        : [gB && groundOf(gB, bp.q.name, true, B), Object.assign(boat, useL ? { to: L } : {}), gL && groundOf(gL, lp.q.name, false)];
+      return { parts: parts.filter(Boolean), min: (gL ? gL.min : 0) + (gB ? gB.min : 0), from, to: at };
     }
-    const fromPier = (how, pl) => { const bt = pl && pl.parts.find(x => x.boat); return bt && bt.from ? how.replace(/^(Fast ferry|Ferry|Boat)/, "$1 from " + bt.from) : how; };
-    function base(a, b) {
-      const pin = legs && legs[E.pairKey(a, b)];
-      if (pin && isFinite(pin.min)) { let leg = { mode: pin.mode || "ride", how: pin.how || "Ride", km: pin.km || 0, min: Math.round(pin.min), pinned: true };
-        if ((b.backToShip || b.deadline) && leg.min >= 30 && leg.mode !== "walk") { const sl = Math.max(15, Math.round(leg.min * 0.3 / 5) * 5); leg = Object.assign(leg, { min: leg.min + sl, slack: sl }); }
-        return leg; }
+    // Every way to make the ride, then the one taken.
+    function calc(a, b) {
       const d = E.hav(a, b);
-      if (d < 0.02) return { mode: "walk", how: "Walk", km: 0, min: 0 };
-      // Across water: a place the guide says is reached by boat is always reached by boat (never a taxi or a walk), on
-      // the boat's own timetable: the crossing the guide names, plus 20 minutes for the pier and the wait for a sailing.
-      // To a ship, train or plane it gets the same extra time as any long ride.
-      const byBoat = p => E.byBoat(p.travelNote) || E.waterOnly(p);
-      if (byBoat(a) !== byBoat(b) && d > 1) {
-        const note = byBoat(a) ? a.travelNote : b.travelNote, said = saidMin(note) || Math.round(d / 25 * 60) + 10;
-        const how = /high.?speed|fast ferry|hydrofoil|catamaran/i.test(note) ? "Fast ferry" : /ferry/i.test(note) ? "Ferry" : "Boat";
-        const pl = pierLeg(a, b, byBoat(a) ? a : b);
-        let leg = { mode: "boat", how: fromPier(how, pl) + ", " + said + " min crossing, plus " + E.PIER_MIN + " min at the pier for the next sailing", km: d, min: said + E.PIER_MIN, cross: said, pier: E.PIER_MIN, timetable: true };
-        if (b.backToShip || b.deadline) { const sl = Math.max(15, Math.round(leg.min * 0.3 / 5) * 5); leg = Object.assign(leg, { min: leg.min + sl, slack: sl }); }
-        if (pl) leg = Object.assign(leg, { min: leg.min + pl.min, parts: pl.parts });
-        return leg;
-      }
-      const walkMin = Math.max(2, Math.round(d * 1.3 / speed * 60)), either = d >= 0.6 && d <= WALK_EITHER, want = either ? modeOf(a, b) : null;
-      if (d <= lim ? !want || want === "walk" : want === "walk") return { mode: "walk", how: "Walk", km: d * 1.3, min: walkMin, either };
-      let leg = road(d); leg.either = either;
-      // A day trip (over 15 km), or a place out of town whose note names a train, bus or boat to it (over 5 km: Vesuvius, 14 km
-      // from the port, was planned as a 55-minute taxi with no choice, its note's train and shuttle bus unread, Nov 18).
-      if (d > 15 || (d > 5 && !!a.travelNote !== !!b.travelNote && E.noteWays(a.travelNote || b.travelNote).some(w => w.id !== "taxi"))) { // the guide's own note on how to get there, from the place's own base (port, hotel, town)
-        // A note tells how to get out to a sight from the place itself, so it is read only for a ride between the two:
-        // a ride from one trip out to another (Sorrento to Pompeii) is planned from the map, never from either note.
-        const note = a.travelNote && !b.travelNote ? a.travelNote : b.travelNote && !a.travelNote ? b.travelNote : "";
-        const named = E.noteWays(note), total = saidMin(note), taxi = Object.assign({}, leg, { how: "Taxi or car" });
-        let ways = named.filter(w => w.said || w.id === "taxi");
-        // Public transport named with one time for the whole way ("the train, then the shuttle bus; about 1.5 hours"): one
-        // choice, the way the guide says, with its time.
-        const pubs = named.filter(w => w.id === "transit" && !w.said);
-        if (!ways.some(w => w.id === "transit") && pubs.length && total) ways = ways.concat([{ id: "transit", kind: pubs[0].kind, how: pubs.map(w => w.how).filter((h, k, all) => all.indexOf(h) === k).map((h, k) => k ? h.toLowerCase() : h).join(", then ") + " (the whole way, as the guide says)", said: total }]);
-        // Every way the guide names is a choice of its own, with its own time: a ferry (its crossing, plus the pier and the
-        // wait for a sailing), a train or bus (its ride, plus getting to the station), and a taxi or car by road.
-        const noteEnd = a.travelNote && !b.travelNote ? a : b, boatPl = ways.some(w => w.id === "boat") ? pierLeg(a, b, noteEnd) : null;
-        const opts = ways.filter(w => w.id !== "taxi").map(w => w.id === "boat"
-          ? Object.assign({ id: "boat", mode: "boat", kind: "ferry", how: fromPier(w.how, boatPl) + ", " + w.said + " min crossing, plus " + E.PIER_MIN + " min at the pier for the next sailing", min: w.said + E.PIER_MIN + (boatPl ? boatPl.min : 0), cross: w.said, timetable: true }, boatPl ? { parts: boatPl.parts } : {})
-          : { id: "transit", mode: "transit", transitMode: w.kind, kind: w.kind, how: w.how + ", " + w.said + " min, plus 15 to get to the station", min: w.said + 15 });
-        if (opts.length) {
-          const all = opts.concat([{ id: "taxi", mode: "ride", kind: "car", how: "Taxi or car", min: taxi.min }]), wantNow = modeOf(a, b);
-          const best = opts.slice().sort((x, y) => x.min - y.min || x.id.localeCompare(y.id))[0];
-          // The traveler's own choice wins; else the quickest public way, unless a taxi saves a lot (the app's rule).
-          const pick = all.find(o => o.id === wantNow) || (E.publicWins(best.min, taxi.min) ? best : all[all.length - 1]);
-          const options = all.map(o => Object.assign({ id: o.id, mode: o.mode, how: o.how, min: o.min, kind: o.kind }, o.parts ? { parts: o.parts, cross: o.cross } : {}));
-          leg = pick.mode === "ride" ? Object.assign(taxi, { options, choice: "taxi", said: true })
-            : Object.assign({ mode: pick.mode, how: pick.how, km: d * 1.3, min: pick.min, options, choice: pick.id, said: true }, pick.mode === "boat" ? { cross: pick.cross, pier: E.PIER_MIN, timetable: true } : { transitMode: pick.transitMode }, pick.parts ? { parts: pick.parts } : {});
-        } else {
-          // A note with a time and no way named ("about an hour"): the guide's time wins over the estimate.
-          const said = saidMin(note);
-          if (said) leg = Object.assign(leg, said + 15 >= leg.min ? { min: said + 15, said: true, how: leg.how + ": " + said + " min as the guide says, plus 15 to get going" } : { said: true });
+      if (d < 0.02) return { mode: "walk", kind: "walk", how: "Walk", km: 0, min: 0 };
+      const pin = legs && legs[E.pairKey(a, b)], pinned = pin && isFinite(pin.min) ? pin : null, wantRaw = modeOf(a, b);
+      const isle = p => E.byBoat(p.travelNote) || E.waterOnly(p), note = noteFor(a, b);
+      // The traveler's choice, as a kind (a row of a timetable answer picked earlier counts as its kind).
+      const want = wantRaw == null ? null : OLD_CHOICE[wantRaw] || wantRaw;
+      const opts = [];
+      if (isle(a) !== isle(b) && d > 1) {
+        // Across water: a place reached only by boat is reached by boat, never a taxi or a walk. The boat's time is the
+        // timetable's when the app has it, else the crossing the guide names (or one worked out from the distance),
+        // plus the time at the pier for the next sailing.
+        const holder = isle(a) ? a : b, ferryAns = answered(a, b, d, wantRaw).find(o => o.kind === "ferry");
+        if (ferryAns) opts.push(Object.assign(ferryAns, { km: d }));
+        else {
+          const hn = holder.travelNote || "", cross = saidMin(hn) || Math.round(d / 25 * 60) + 10, pl = pierLeg(a, b, holder);
+          const word = /high.?speed|fast ferry|hydrofoil|catamaran/i.test(hn) ? "Fast ferry" : /ferry/i.test(hn) ? "Ferry" : "Boat";
+          const fromTo = pl && pl.parts.find(x => x.boat), how = word + (fromTo && fromTo.from ? " from " + fromTo.from : "") + (fromTo && fromTo.at ? " to " + fromTo.at : "");
+          opts.push(Object.assign({ id: "ferry", kind: "ferry", how, min: cross + E.PIER_MIN + (pl ? pl.min : 0), km: d, cross, pier: E.PIER_MIN, timetable: true,
+            steps: [word + (fromTo && fromTo.from ? " from " + fromTo.from : "") + ", about " + cross + " min crossing", "Allow " + E.PIER_MIN + " min at the pier for the ticket and the next sailing"] }, pl ? { parts: pl.parts } : {}));
+        }
+      } else {
+        // On foot: any ride up to 4 km may be walked.
+        const onFoot = pinned && pinned.mode === "walk" ? Math.round(pinned.min) : Math.max(2, Math.round(d * 1.3 / speed * 60));
+        if (d <= WALK_EITHER || (pinned && pinned.mode === "walk")) opts.push({ id: "walk", kind: "walk", how: "Walk", min: onFoot, km: d * 1.3, steps: [] });
+        // Public transport: the timetable's answers, one per kind; a line mapped on OpenStreetMap for a kind they don't
+        // have (a stop within a short walk of each end). On a walk short enough, only when it is quicker than walking.
+        const pub = answered(a, b, d, wantRaw);
+        if (d >= 0.6 && lines && lines.length) { const t = E.transitOption(a, b, lines, walkMinOf);
+          if (t && !pub.some(o => o.kind === t.kind)) pub.push({ id: t.kind, kind: t.kind, how: t.how, min: t.min, steps: t.steps.slice(), mapped: true, transitMode: t.mode }); }
+        for (const o of pub) if (d > lim || o.min < onFoot) opts.push(Object.assign({ km: d * 1.3 }, o));
+        // By road: a taxi or car, on the road network's time when the places database has it, else the road estimate.
+        // The guide's own time for the ride (a winding road it knows) is the floor, never the label.
+        if (d >= 0.6 || !opts.length) {
+          const r = pinned && pinned.mode !== "walk" && pinned.mode !== "boat" ? { km: pinned.km || d * 1.3, min: Math.round(pinned.min) } : road(d), said = d > 5 ? saidMin(note) : 0;
+          opts.push({ id: "taxi", kind: "taxi", how: "Taxi or car", min: Math.max(r.min, said), km: r.km, steps: [] });
         }
       }
-      // A long ride (half an hour or more) to a ship, train or plane gets time for a late train or traffic: 30% more, at
-      // least 15 minutes (Nov 18: a 55-minute taxi back to the ship from Vesuvius, 14 km away, had none).
-      if ((b.backToShip || b.deadline) && leg.min >= 30 && leg.mode !== "walk" && !leg.slack) { const sl = Math.max(15, Math.round(leg.min * 0.3 / 5) * 5); leg = Object.assign(leg, { min: leg.min + sl, slack: sl }); }
+      // Time for the ship, a train or a plane, in one place for every way: a ride of half an hour or more to it gets 30%
+      // more, at least 15 minutes (a late train, traffic, a slow boat queue).
+      if (b.backToShip || b.deadline) for (const o of opts) if (o.kind !== "walk" && o.min >= 30) { o.slack = Math.max(15, Math.round(o.min * 0.3 / 5) * 5); o.min += o.slack; }
+      // The way taken: the traveler's own choice when it is offered; else a walk when it is short enough; else the
+      // quickest public way unless a taxi saves a great deal; else the taxi.
+      const byKind = k => opts.find(o => o.kind === k);
+      const pubs = opts.filter(o => o.kind !== "walk" && o.kind !== "taxi").sort((x, y) => x.min - y.min || x.kind.localeCompare(y.kind));
+      const ansPick = wantRaw != null ? opts.find(o => o.ans && String(o.ans.id) === String(wantRaw)) : null;
+      let pick = ansPick || (want === "transit" ? pubs.find(o => o.kind !== "ferry") : want != null ? byKind(want) : null), lost = null;
+      if (want != null && !pick) lost = want;
+      if (!pick) { const w = byKind("walk"), t = byKind("taxi");
+        pick = w && d <= lim ? w : pubs.length && (!t || E.publicWins(pubs[0].min, t.min)) ? pubs[0] : t || pubs[0] || w || opts[0]; }
+      // A way the guide names that the data doesn't have: said plainly, never planned as if it were known.
+      const missing = d > 5 && note ? E.noteKinds(note).filter(k => !opts.some(o => o.kind === k || (k === "train" && (o.kind === "metro" || o.kind === "tram")))) : [];
+      const notes = [];
+      if (note && d > 5) notes.push("The guide says: " + note.trim().replace(/\s+/g, " "));
+      if (missing.length) notes.push("The guide names " + missing.map(k => k === "ferry" ? "a ferry" : "a " + k).join(" and ") + ", but no timetable for it is known here, so this ride is planned " + (pick.kind === "taxi" ? "by taxi" : "as " + pick.how) + ": check at the " + (missing.includes("ferry") && missing.length === 1 ? "pier" : "station") + " or with your hotel.");
+      const options = opts.map(o => Object.assign({ id: o.id, kind: o.kind, mode: E.modeOfKind(o.kind), how: o.how, min: o.min, steps: o.steps || [] },
+        o.ans ? { ans: o.ans } : {}, o.parts ? { parts: o.parts, cross: o.cross } : {}, o.slack ? { slack: o.slack } : {}, o.transitMode ? { transitMode: o.transitMode } : {}));
+      const leg = Object.assign({ mode: E.modeOfKind(pick.kind), kind: pick.kind, how: pick.how, km: pick.km || d, min: pick.min, steps: pick.steps || [], choice: pick.id, options },
+        pick.kind !== "walk" && pick.kind !== "taxi" && pick.kind !== "ferry" ? { transitMode: pick.transitMode || (pick.ans && pick.ans.mode) || pick.kind } : {},
+        pick.kind === "ferry" ? { cross: pick.cross, pier: pick.pier || E.PIER_MIN, timetable: true } : {},
+        pick.parts ? { parts: pick.parts } : {}, pick.ans ? { ans: pick.ans } : {}, pick.slack ? { slack: pick.slack } : {}, pinned ? { pinned: true } : {},
+        notes.length ? { note: notes.join(" ") } : {}, lost ? { lost } : {});
+      if (options.length < 2) delete leg.options;
       return leg;
     }
     const min = (a, b) => (a && b ? estimate(a, b).min : 0);
     // The order of the day is worked out with the usual ride times, never with the way the traveler picked: a slower
-    // train they choose changes the clock, not which place comes first (Nov 18, Naples: picking the train made the day
-    // run another way round, the ride was no longer made, and the choice was refused).
+    // train they choose changes the clock, not which place comes first (Nov 18: picking the train made the day run
+    // another way round, the ride was no longer made, and the choice was refused).
     let plain = null;
     const orderMin = (a, b) => { if (!chosenPairs.length && !Object.keys(modes).length) return min(a, b); if (!plain) plain = E.makeTravel(prefs, null, legs, lines, answers, piers); return plain.min(a, b); };
-    return { estimate, min, orderMin, road, saidMin, chosen: (a, b) => modeOf(a, b) != null };
+    return { estimate, min, orderMin, road: d => Object.assign({ mode: "ride", kind: "taxi", how: "Taxi or car" }, road(d)), saidMin, chosen: (a, b) => modeOf(a, b) != null };
   };
+  // The ride as the plan lists it: every fact the screens need, from the one ride record.
+  E.rideItem = (leg, extra) => Object.assign({ t: "ride", mode: leg.mode, kind: leg.kind || (leg.mode === "walk" ? "walk" : "taxi"), min: leg.min, km: Math.round((leg.km || 0) * 100) / 100 },
+    leg.how && leg.mode !== "walk" ? { how: leg.how } : {}, leg.options ? { options: leg.options } : {}, leg.transitMode ? { transitMode: leg.transitMode } : {},
+    leg.choice ? { choice: leg.choice } : {}, leg.steps && leg.steps.length ? { steps: leg.steps } : {}, leg.ans ? { ans: leg.ans } : {}, leg.note ? { note: leg.note } : {},
+    leg.lost ? { lost: leg.lost } : {}, leg.slack ? { slack: leg.slack } : {}, leg.pierName ? { pierName: leg.pierName } : {}, extra || {});
 })(KEngine);
 // Beta 2 engine, part 1b: public transport between two points (metro, light rail, tram, train), from the lines mapped
 // on OpenStreetMap (the places files). Every leg where a line serves both ends is offered beside walking and a taxi,
@@ -1996,8 +1962,9 @@ if (typeof module !== "undefined") module.exports = KEngine;
   const ride = (l, i, j) => { const c = cum(l), [a, b] = i < j ? [i, j] : [j, i];
     return Math.round((c[b] - c[a]) / (SPEED[l.mode] || 25) * 60 + 0.5 * (b - a)); };
   // lines: [{ mode, ref, name, stops: [{ name, lat, lng }] in order }]. walkMin(km) -> minutes on foot.
-  // far: a day trip out of town ({ km, taxiMin(km) }): the far end may be a taxi ride from its station (Ancient Corinth
-  // from Corinth station), trains run about hourly (half an hour's wait counted), and the option says so.
+  // A line is offered only with a walk at each end (a stop within a short walk): never a taxi stitched to a train (Nov 18:
+  // "Taxi 19 min to Athina, then Train A4, then a taxi 30 min, 3 h 28" next to a 95-minute ride). A ride with no stop
+  // near either end is the timetable's to answer, or a taxi.
   // The same lines (the places files load once; each plan gathers them into a new list) give the same answer for the
   // same two points, so answers are kept with the set of lines, not with one plan: a tick on the Sights list replans
   // the trip without measuring every metro ride again.
@@ -2007,39 +1974,41 @@ if (typeof module !== "undefined") module.exports = KEngine;
     k = sets.get(key); if (!k) { if (sets.size > 50) sets.clear(); sets.set(key, k = { key, lines, answers: new Map() }); }
     setOf.set(lines, k); return k; };
   E.linesKey = lines => linesSet(lines).key;
-  E.transitOption = (a, b, lines, walkMin, far) => {
+  // The kind of ride a line is, as the traveler sees it: metro, tram (light rail too), train or bus.
+  E.lineKind = m => /subway|metro/.test(m) ? "metro" : /tram|light_rail|monorail/.test(m) ? "tram" : /bus|coach/.test(m) ? "bus" : /ferry|boat/.test(m) ? "ferry" : "train";
+  // { min, mode, kind, how, legs, steps: ["Walk 6 min to Syntagma", "Metro Line 3, Syntagma to Airport, 38 min", "Walk 3 min"] }
+  E.transitOption = (a, b, lines, walkMin) => {
     if (!lines || !lines.length || !a || !b || !isFinite(a.lat) || !isFinite(b.lat)) return null;
-    const set = linesSet(lines), key = walkMin(10) + "|" + (far ? far.km + ":" + far.taxiMin(10) : "") + "|" + a.lat + "," + a.lng + "|" + b.lat + "," + b.lng;
+    const set = linesSet(lines), key = walkMin(10) + "|" + a.lat + "," + a.lng + "|" + b.lat + "," + b.lng;
     if (set.answers.has(key)) return set.answers.get(key);
     if (set.answers.size > 100000) set.answers.clear();
-    const got = findOption(a, b, set.lines, walkMin, far); set.answers.set(key, got && Object.freeze(got)); return got;
+    const got = findOption(a, b, set.lines, walkMin); set.answers.set(key, got && Object.freeze(got)); return got;
   };
-  const findOption = (a, b, lines, walkMin, far) => {
+  const findOption = (a, b, lines, walkMin) => {
     const near = (p, km) => { const g = gridOf(lines), out = [], la = Math.floor(p.lat / CELL), lo = Math.floor(p.lng / CELL);
       const sLa = Math.ceil(km / (111 * CELL)) , sLo = Math.ceil(km / (111 * CELL * Math.max(0.2, Math.cos(p.lat * Math.PI / 180))));
       for (let x = la - sLa; x <= la + sLa; x++) for (let y = lo - sLo; y <= lo + sLo; y++) { const c = g.get(x + "," + y); if (!c) continue;
         for (const [li, si] of c) { const d = E.hav(p, lines[li].stops[si]); if (d <= km) out.push({ li, si, d }); } }
       return out.sort((a, b) => a.li - b.li || a.si - b.si); };
-    const reach = far ? far.km : ACCESS_KM, endMin = d => d <= ACCESS_KM ? walkMin(d) : far.taxiMin(d), endWord = (d, nm) => d <= ACCESS_KM ? "" : ", then a taxi " + far.taxiMin(d) + " min";
-    const from = near(a, reach).filter(x => !far || x.d <= reach), to = near(b, reach); if (!from.length || !to.length) return null;
-    const wait = m => far ? 30 : (WAIT[m] || 6);
+    const from = near(a, ACCESS_KM), to = near(b, ACCESS_KM); if (!from.length || !to.length) return null;
+    const wait = m => WAIT[m] || 6, nm = st => E.latin(st.name || "the stop");
     let best = null;
-    // The label is written only for a ride that beats (or ties) the best so far: most candidates never need one.
-    const consider = (min, mode, legs, how) => { if (best && min > best.min) return; const h = how(); if (!best || min < best.min || h < best.how) best = { min, mode, how: h, legs }; };
+    // The words are written only for a ride that beats (or ties) the best so far: most candidates never need them.
+    const consider = (min, mode, legs, stepsOf) => { if (best && min > best.min) return; const steps = stepsOf(), h = steps.slice(1, -1).map(x => x.replace(/, \d+ min$/, "").replace(/^Change to /, "then ")).join(", ");
+      if (!best || min < best.min || h < best.how) best = { min, mode, kind: E.lineKind(mode), how: h, legs, steps }; };
     for (const f of from) for (const t of to) {
       const L = lines[f.li], M = lines[t.li];
       if (f.li === t.li) {
         if (f.si === t.si) continue;
-        const min = endMin(f.d) + wait(L.mode) + ride(L, f.si, t.si) + endMin(t.d);
-        consider(min, L.mode, 1, () => (f.d > ACCESS_KM ? "Taxi " + endMin(f.d) + " min to " + E.latin(L.stops[f.si].name) + ", then " : "") + E.transitLabel(L) + ", " + E.latin(L.stops[f.si].name) + " to " + E.latin(M.stops[t.si].name) + endWord(t.d));
+        const r = ride(L, f.si, t.si), min = walkMin(f.d) + wait(L.mode) + r + walkMin(t.d);
+        consider(min, L.mode, 1, () => ["Walk " + walkMin(f.d) + " min to " + nm(L.stops[f.si]), E.transitLabel(L) + ", " + nm(L.stops[f.si]) + " to " + nm(L.stops[t.si]) + ", " + r + " min", "Walk " + walkMin(t.d) + " min"]);
         continue;
       }
       // One change: a stop of the first line that is (or stands beside) a stop of the second.
       for (const [i, j] of meets(L, M)) {
-        const x = L.stops[i];
         if (i === f.si || j === t.si) continue;
-        const min = endMin(f.d) + wait(L.mode) + ride(L, f.si, i) + CHANGE_MIN + wait(M.mode) + ride(M, j, t.si) + endMin(t.d);
-        consider(min, L.mode, 2, () => (f.d > ACCESS_KM ? "Taxi " + endMin(f.d) + " min to " + E.latin(L.stops[f.si].name) + ", then " : "") + E.transitLabel(L) + " to " + E.latin(x.name) + ", then " + E.transitLabel(M) + " to " + E.latin(M.stops[t.si].name) + endWord(t.d));
+        const r1 = ride(L, f.si, i), r2 = ride(M, j, t.si), min = walkMin(f.d) + wait(L.mode) + r1 + CHANGE_MIN + wait(M.mode) + r2 + walkMin(t.d);
+        consider(min, L.mode, 2, () => ["Walk " + walkMin(f.d) + " min to " + nm(L.stops[f.si]), E.transitLabel(L) + ", " + nm(L.stops[f.si]) + " to " + nm(L.stops[i]) + ", " + r1 + " min", "Change to " + E.transitLabel(M) + ", " + nm(M.stops[j]) + " to " + nm(M.stops[t.si]) + ", " + r2 + " min", "Walk " + walkMin(t.d) + " min"]);
       }
     }
     return best;
@@ -2498,7 +2467,7 @@ if (typeof module !== "undefined") module.exports = KEngine;
     const key = meal + n + "@" + p.lat + "," + p.lng, got = ctx.eatMemo.get(key); if (got) return got;
     const out = [];
     for (const x of ctx.eatList) {
-      if (meal === "Lunch" ? x.f.lunchShut : x.f.dinnerShut || x.r.townLunch) continue;
+      if (meal === "Lunch" ? x.f.lunchShut : x.f.dinnerShut || x.r.townLunch || x.r.inTown) continue;
       if (!ctx.ledger.eatFree(x.k, ctx.dayIdx)) continue;
       out.push({ r: x.r, k: x.k, d: E.hav(p, x.r) + (x.r.fromMap ? 0.4 : 0) }); // a guide place to eat first, a map one when it is nearer the way
     }
@@ -2547,7 +2516,8 @@ if (typeof module !== "undefined") module.exports = KEngine;
       // Lunch where the traveler is or along the way (Nov 18, Corpus Christi: North Beach, back over the bridge for lunch,
       // then over the bridge again): places to eat near the stop before, near the stop after and halfway between; each
       // costs what it takes them out of their way, so the one on the path wins over a slightly nearer one behind them.
-      const a = pts[k], b = order[k] || null, mid = b && isFinite(b.lat) ? { lat: (a.lat + b.lat) / 2, lng: (a.lng + b.lng) / 2 } : null;
+      // After the last stop: lunch on the way back too, near where the day ends (the hotel, the port).
+      const a = pts[k], b = order[k] || (k === order.length && win.tail.length ? win.tail[0] : null), mid = b && isFinite(b.lat) ? { lat: (a.lat + b.lat) / 2, lng: (a.lng + b.lng) / 2 } : null;
       const offOf = e => b && isFinite(b.lat) ? E.hav(a, e.r) + E.hav(e.r, b) - E.hav(a, b) : E.hav(a, e.r);
       // The three least out of the way (each one is timed in full below, so only the likely winners are tried).
       const cands = my.pick ? [my.pick] : [...new Map((quick ? [a] : [a, b, mid]).filter(q => q && isFinite(q.lat)).flatMap(q => eatsNear(q, ctx, "Lunch", 3)).map(e => [e.k, e])).values()]
@@ -2559,19 +2529,45 @@ if (typeof module !== "undefined") module.exports = KEngine;
         // A sit-down lunch, a quicker one when the day is tight, or lunch on the go (bought and eaten walking on) when
         // only that keeps every stop: each a small cost, so the fuller lunch wins whenever it fits.
         const toGo = len === E.TO_GO;
-        const meal = { id: "eat:" + e.k, eatKey: e.k, name: e.r.name, lat: e.r.lat, lng: e.r.lng, mealOf: L, len, quick: len < L.len, toGo, chosen: !!my.pick, fromMap: !!e.r.fromMap };
+        const meal = { id: "eat:" + e.k, eatKey: e.k, name: e.r.name, lat: e.r.lat, lng: e.r.lng, mealOf: L, len, quick: len < L.len, toGo, chosen: !!my.pick, fromMap: !!e.r.fromMap, travelNote: e.r.travelNote || "" };
         const off = my.pick ? 0 : offOf(e);
         const seq = order.slice(0, k).concat([meal], order.slice(k)), r = walk(seq, win, ctx, { r: plain, k }), pen = penalty(r) + (toGo ? 60 : len < L.len ? 20 : 0) + off * 1.5 + (e.r.fromMap ? 0.5 : 0); // a km out of the way weighs like half an hour more riding
         // On a ship, train or plane day lunch is something the app adds, so it keeps the same margin as any added sight.
         if (win.hard && !r.over && win.endBy - r.end < E.FILL_MARGIN) { tight = true; continue; }
         if (len === L.len && !r.over && !r.late) fullFits = true;
-        if (!best || pen < best.pen - 1e-9) best = { seq, r, pen };
+        if (!best || pen < best.pen - 1e-9) best = { seq, r, pen, k };
       } }
     }
     // Lunch never makes the day run late or reach a stop after its last entry: then the day goes without (and says so).
     // Nor does it mean sitting idle waiting for the kitchen to open (lunch first, then a long ride out of town).
-    const ok = best && best.r.lateMeal < 90 && best.r.over <= plain.over && best.r.late <= plain.late && best.r.waits - plain.waits <= 45;
-    return ok ? { seq: best.seq, r: best.r } : { seq: order, r: plain, noLunch: best || tight ? "time" : "place" };
+    // A wait for the kitchen after the last stop is free time anyway (back early, lunch before the ride home).
+    const okOf = c => c && c.r.lateMeal < 90 && c.r.over <= plain.over && c.r.late <= plain.late && (c.k === order.length || c.r.waits - plain.waits <= 45) && !(win.hard && !c.r.over && win.endBy - c.r.end < E.FILL_MARGIN);
+    if (okOf(best)) return { seq: best.seq, r: best.r };
+    // No room for lunch between the stops: a long visit over lunchtime (a town, an island, a big site) has lunch in it,
+    // there, taken out of the visit's own time (Nov 18, Richard: "No lunch" on his trip: four hours on an island over
+    // midday and no lunch, because nothing could be added to a full day). The visit is that much shorter; the day isn't longer.
+    {
+      let inside = null;
+      plain.items.filter(x => x.t === "stop" || x.t === "meal").forEach((st, k) => {
+        const s = order[k]; if (!s || s.mealOf || st.t !== "stop" || !isFinite(s.lat)) return;
+        const from = st.at, to = st.at + (st.min || 0), over = Math.min(to, L.to) - Math.max(from, L.from);
+        for (const len of [L.len, L.quick, E.TO_GO]) {
+          if (over < len || (s.minutes || 0) - len < 45) continue;
+          const cands = my.pick ? [my.pick] : eatsNear(s, ctx, "Lunch", 3);
+          for (const e of cands) {
+            const short = Object.assign({}, s, { minutes: s.minutes - len, lunchIn: len });
+            const meal = { id: "eat:" + e.k, eatKey: e.k, name: e.r.name, lat: e.r.lat, lng: e.r.lng, mealOf: L, len, quick: len < L.len, toGo: len === E.TO_GO, chosen: !!my.pick, fromMap: !!e.r.fromMap, inside: s.id, travelNote: e.r.travelNote || (E.byBoat(s.travelNote) && E.hav(s, e.r) <= 3 ? s.travelNote : "") };
+            const seq = order.slice(0, k).concat([short, meal], order.slice(k + 1)), r = walk(seq, win, ctx, { r: plain, k });
+            const pen = penalty(r) + (len < L.len ? 20 : 0) + E.hav(s, e.r) * 1.5 + (e.r.fromMap ? 0.5 : 0);
+            const c = { seq, r, pen, k: k + 1 };
+            if (r.lateMeal < 90 && r.over <= plain.over && r.late <= plain.late && (!inside || pen < inside.pen - 1e-9)) inside = c;
+          }
+          if (inside) break;
+        }
+      });
+      if (inside) return { seq: inside.seq, r: inside.r, lunchIn: true };
+    }
+    return { seq: order, r: plain, noLunch: best || tight ? "time" : "place" };
   }
   // A day that could have lunch but lost it to the stops counts as worse than a slightly later end.
   const cost = c => penalty(c.r) + (c.noLunch === "time" ? 300 : 0);
@@ -2716,7 +2712,10 @@ if (typeof module !== "undefined") module.exports = KEngine;
         .map(s => { const dt = detour(s), near = wanted(s) && dt <= 10; return { s, near, v: near ? Math.max(1, s.worth || 0) : (s.worth || 0) - 0.25 * dt }; })
         // a must-see or a finished voiced tour a few steps off the day's walk is offered first
         // (any that would fit is worth naming: the traveler decides, so a lesser one is offered when nothing better fits)
-        .sort((a, b) => (b.near - a.near) || b.v - a.v || E.byId(a.s, b.s));
+        // Must-sees first of all (Nov 18: Richard missed the Little Metropolis and Monastiraki; within his rule that the
+        // app adds nothing on its own, a must-see that fits is the first thing offered, marked as one).
+        .map(x => Object.assign(x, { must: x.s.mustSee || E.has(x.s, "must-see") || x.s.hasGuide ? 1 : 0 }))
+        .sort((a, b) => (b.must - a.must) || (b.near - a.near) || b.v - a.v || E.byId(a.s, b.s));
       const room = win.hard ? E.FILL_MARGIN : 0;
       let tries = 0;
       for (const { s } of cands) {
@@ -2728,7 +2727,7 @@ if (typeof module !== "undefined") module.exports = KEngine;
         const fitsDay = x => !x.r.over && !x.r.late && win.endBy - x.r.end >= room && (x.noLunch !== "time" || cur.noLunch === "time");
         let c = arrange(next, win, ctx, true);
         if (!fitsDay(c) && tries <= 4) c = arrange(next, win, ctx); // the first few also get the full repair
-        if (!c.r.over && !c.r.late && win.endBy - c.r.end >= room && (c.noLunch !== "time" || cur.noLunch === "time")) suggest.push({ id: s.id, name: s.name, minutes: s.minutes || 0, far: !!s.far });
+        if (!c.r.over && !c.r.late && win.endBy - c.r.end >= room && (c.noLunch !== "time" || cur.noLunch === "time")) suggest.push({ id: s.id, name: s.name, minutes: s.minutes || 0, far: !!s.far, must: !!(s.mustSee || E.has(s, "must-see")), voiced: !!s.hasGuide });
       }
     }
     return { seq: cur.seq, r: cur.r, kept: keep, dropped, suggest, noLunch: lunchWanted(win) ? cur.noLunch || null : null };
@@ -2758,7 +2757,7 @@ if (typeof module !== "undefined") module.exports = KEngine;
     let clock = win.start, prev = O, late = 0, waits = 0, rideMin = 0;
     if (st) ({ clock, prev, late, waits, rideMin } = st); else items.push({ t: "start", name: O && O.name, at: clock });
     const go = (p, type) => {
-      const leg = ride(prev, p); items.push(Object.assign({ t: "ride", mode: leg.mode, min: leg.min, km: Math.round((leg.km || 0) * 100) / 100 }, leg.how && leg.mode !== "walk" ? { how: leg.how } : {}, leg.options ? { options: leg.options } : {}, leg.transitMode ? { transitMode: leg.transitMode } : {}, leg.choice ? { choice: leg.choice } : {}, leg.parts ? { parts: leg.parts } : {})); clock += leg.min; rideMin += leg.min;
+      const leg = ride(prev, p); items.push(E.rideItem(leg, leg.parts ? { parts: leg.parts } : null)); clock += leg.min; rideMin += leg.min;
       const it = { t: type, id: p.id || null, name: p.name, min: p.minutes || 0 };
       if (type === "stop") { const sd = siteDay ? siteDay(p.id) : null, f = E.hoursFit(sd && sd.oh, clock, p.minutes);
         if (f.wait) { clock += f.wait; waits += f.wait; it.wait = f.wait; } if (f.late > 0) { late++; it.late = f.late; }
@@ -2811,13 +2810,13 @@ if (typeof module !== "undefined") module.exports = KEngine;
     const whereIs = x => x.t === "fixed" ? fixedAt(x.id) : x.id != null ? byId.get(String(x.id)) : x.t === "start" ? win.head[0] : x.t === "end" ? win.tail[win.tail.length - 1] : null;
     for (const x of fit.r.items) {
       if (x.t === "ride") {
-        const ride = Object.assign({ t: "ride", mode: x.mode, min: x.min, km: x.km }, x.how && x.mode !== "walk" ? { how: x.how } : {}, x.options ? { options: x.options } : {}, x.transitMode ? { transitMode: x.transitMode } : {}, x.choice ? { choice: x.choice } : {});
+        const { parts, ...one } = x, ride = Object.assign({}, one);
         if (!x.parts) { items.push(ride); continue; }
         // A boat between piers: the way to the pier and from it are rides of their own, around the boat. The traveler's
         // choice of ways stays on the boat, for the whole ride between the two places.
         const ground = x.parts.filter(g => !g.boat).reduce((t, g) => t + g.min, 0);
         x.parts.forEach(g => { const r = g.boat ? Object.assign(ride, { min: x.min - ground, whole: true }, g.from ? { pierName: g.from } : {})
-            : Object.assign({ t: "ride", mode: g.mode, min: g.min, km: Math.round((g.km || 0) * 100) / 100, pierName: g.pierName }, g.how && g.mode !== "walk" ? { how: g.how } : {}, g.transitMode ? { transitMode: g.transitMode } : {});
+            : E.rideItem(g);
           if (g.to) r.to = { lat: g.to.lat, lng: g.to.lng }; items.push(r); });
         continue;
       }
@@ -2953,7 +2952,12 @@ if (typeof module !== "undefined") module.exports = KEngine;
       const ranked = E.rank(listed, prefs, style);
       // A town a day away whose travel guide names places to eat gets a lunch stop in its centre (the plan names the
       // guide's suggestions); it is never a dinner idea.
-      const townLunch = (city.farther || []).filter(t => !t.town && (t.foodDrink || []).length && isFinite(t.lat)).map(t => ({ name: "Lunch in " + t.name, lat: t.lat, lng: t.lng, townLunch: t.id }));
+      // Its places to eat that are on the map are planned by name, where they are (Nov 18, Richard's day on an island: "Lunch in
+      // <town>", with no place named); a town whose guide gives none a spot keeps a lunch stop in its centre.
+      const townLunch = (city.farther || []).filter(t => !t.town && (t.foodDrink || []).length && isFinite(t.lat)).flatMap(t => {
+        const real = t.foodDrink.filter(x => x.kind === "eat" && isFinite(x.lat) && isFinite(x.lng) && E.hav(x, t) <= 3);
+        return real.length ? real.map(x => ({ name: x.name, lat: x.lat, lng: x.lng, kind: "restaurant", amenity: "restaurant", fromMap: !!x.fromMap, inTown: t.id, travelNote: t.travelNote || "" }))
+          : [{ name: "Lunch in " + t.name, lat: t.lat, lng: t.lng, townLunch: t.id, travelNote: t.travelNote || "" }]; });
       const ctx = { single: (byCity.get(d.city) || [i]).length === 1, tr, ledger, dayIdx: i, siteDay, eats: (city.restaurants || []).concat(townLunch).sort((a, b) => E.eatKey(a.name).localeCompare(E.eatKey(b.name))), eatFacts: d.eats || {}, mealPrefs: d.mealPrefs || {} };
       // May this day add a sight on its own? Not one used on another day, picked for another day, or in another
       // day's area, unless that day is already planned and left it over.
@@ -3100,7 +3104,9 @@ if (typeof module !== "undefined") module.exports = KEngine;
       // Spare time is the traveler's: a trip out that would fit is named for them to add, never added on its own
       // (Nov 18, Richard: "Just let them select to fill the spots").
       if (was.plan && was.plan.suggest) for (const f of far) if (was.spare >= 2 * away(f) + (f.minutes || 60) + (was.win.hard ? 45 : 0) && !was.plan.suggest.some(x => String(x.id) === String(f.id)))
-        was.plan.suggest.push({ id: f.id, name: f.name, minutes: f.minutes || 60, far: true, rideMin: Math.round(away(f)) });
+        was.plan.suggest.push({ id: f.id, name: f.name, minutes: f.minutes || 60, far: true, rideMin: Math.round(away(f)), must: !!(f.mustSee || E.has(f, "must-see")), voiced: !!f.hasGuide });
+      // must-sees and voiced tours first, each marked (a stable sort keeps the rest in the order found)
+      if (was.plan && was.plan.suggest) was.plan.suggest.sort((a, b) => (b.must || b.voiced ? 1 : 0) - (a.must || a.voiced ? 1 : 0));
       if (now) { done[i] = now; out[i] = now.plan; continue; }
       // Time left on a ship day and a trip out by boat the guide names: say so, with the time to be back on shore.
       if (was.win.hard && d.type === "port" && was.plan && was.plan.items) {
@@ -5420,18 +5426,27 @@ function depLine(o, start, endBy, back, slack) {
 }
 // How to pay on a public ride, from the city's guide (only where the guide says so; nothing is assumed for other cities).
 const payNote = o => { if (!o || o.mode === "ferry") return ""; let c = null; try { c = cityFor(day()); } catch (e) {} return c && c.ridePay ? " " + esc(c.ridePay) : ""; };
+// The ride's own steps (a line mapped on the map, a ferry from its pier), the guide's words beside it, and why a choice
+// the traveler made can't be used for this ride (Beta 2: every ride is one record, part 1 of the engine).
+const LOST_WORD = { walk: "walking", metro: "the metro", tram: "the tram", train: "the train", bus: "the bus", ferry: "the ferry", taxi: "a taxi" };
+function rideExtra(leg) {
+  const steps = !leg.transit && leg.steps && leg.steps.length ? `<span class="sub ridesub ridesteps">${leg.steps.map(esc).join(". ")}.</span>` : "";
+  const lost = leg.lost ? `<span class="ridenote">You chose ${esc(LOST_WORD[leg.lost] || "another way")} for this ride, but no ${esc((LOST_WORD[leg.lost] || "such ride").replace(/^(the|a) /, ""))} is known between these two places, so it is planned as ${esc(leg.how.toLowerCase())}.</span>` : "";
+  const note = leg.note ? `<span class="sub ridesub ridenoteguide">${esc(leg.note)}</span>` : "";
+  return steps + lost + note;
+}
 function rideDetail(leg, start, endBy) {
-  if (!leg.choices) return "";
+  if (!leg.choices && !leg.transit) return rideExtra(leg);
   const o = leg.transit, ev = knownEvery(o) ? `, runs about every ${dur(o.every)}${o.everySrc === "timetable" ? " (from the timetable)" : ""}` : "";
   const ride = o && o.steps && o.steps.length ? o.steps.map(esc).join("; then ") : o ? `${dur(o.ride)} ride${o.stops ? ` (${o.stops} stops)` : ""}` : "";
-  const how = o ? `${o.access.how === "walk" ? "Walk" : "Taxi"} ${dur(o.access.min)} to ${esc(o.from || "the " + (o.mode === "ferry" ? "pier" : "station"))}${ev}. ${ride}, then ${o.egress.how === "walk" ? "walk" : "taxi"} ${dur(o.egress.min)}${o.to && !(o.steps && o.steps.length) ? " from " + esc(o.to) : ""}.${o.operator ? " " + esc(o.operator) + "." : ""}${o.hours ? " Hours: " + esc(o.hours) + "." : ""}${o.fare ? " Fare: " + esc(o.fare) + "." : ""} Times include waiting and boarding.${payNote(o)}` : leg.mode === "walk" ? "" : leg.kind === "ferry" ? "Boats keep their own timetable: check the next sailing at the pier." : leg.kind === "train" || leg.kind === "bus" ? "Time includes getting to the station and the wait." : "By road, with time for traffic.";
+  const how = o && o.access && o.egress ? `${o.access.how === "walk" ? "Walk" : "Taxi"} ${dur(o.access.min)} to ${esc(o.from || "the " + (o.mode === "ferry" ? "pier" : "station"))}${ev}. ${ride}, then ${o.egress.how === "walk" ? "walk" : "taxi"} ${dur(o.egress.min)}${o.to && !(o.steps && o.steps.length) ? " from " + esc(o.to) : ""}.${o.operator ? " " + esc(o.operator) + "." : ""}${o.hours ? " Hours: " + esc(o.hours) + "." : ""}${o.fare ? " Fare: " + esc(o.fare) + "." : ""} Times include waiting and boarding.${payNote(o)}` : leg.mode === "walk" ? "" : leg.kind === "ferry" ? "Boats keep their own timetable: check the next sailing at the pier." : leg.kind === "train" || leg.kind === "bus" ? "Time includes getting to the station and the wait." : "By road, with time for traffic.";
   const fall = depLine(o, start, endBy, leg.lastMile, leg.slack) + (leg.slack ? ` Includes ${dur(leg.slack)} spare before the ship.` : "") + (leg.lastMile && o ? ` <b>If you miss it:</b> a taxi takes about ${dur(leg.road)}.` : "");
   const note = rideNotice && rideNotice.key === leg.key ? `<span class="ridenote">${rideNotice.text}${rideNotice.undo != null ? ` <button class="linkbtn" data-act="rideundo">Undo</button>` : ""}${rideNotice.force ? ` <button class="linkbtn" data-act="rideforce">${esc(rideNotice.forceText)}</button>` : ""}</span>` : "";
   // One tap per way to go, in the transport colors, each with its time (and fare when the timetable gives one).
   const chip = c => `${esc(c.label)} · ${dur(c.min)}${c.fare ? " · " + esc(c.fare) : ""}`;
-  const pick = leg.choices.length > 1 ? `<div class="ridechips" role="group" aria-label="How to go">${leg.choices.map(c => `<button type="button" class="ridechip k-${c.kind}${c.id === leg.choice ? " on" : ""}" aria-pressed="${c.id === leg.choice}" data-ridekey="${esc(leg.key)}" data-rideval="${esc(c.id)}">${chip(c)}</button>`).join("")}</div>`
+  const pick = !leg.choices ? "" : leg.choices.length > 1 ? `<div class="ridechips" role="group" aria-label="How to go">${leg.choices.map(c => `<button type="button" class="ridechip k-${c.kind}${c.id === leg.choice ? " on" : ""}" aria-pressed="${c.id === leg.choice}" data-ridekey="${esc(leg.key)}" data-rideval="${esc(c.id)}">${chip(c)}</button>`).join("")}</div>`
     : `<div class="ridechips"><span class="ridechip k-${leg.choices[0].kind} on">${chip(leg.choices[0])}</span></div>`;
-  return `${how || fall ? `<span class="sub ridesub">${how}${fall}</span>` : ""}${note}${pick}`;
+  return `${how || fall ? `<span class="sub ridesub">${how}${fall}</span>` : ""}${rideExtra(leg)}${note}${pick}`;
 }
 // One option for each way of going (the Athens airport ride came back as three metro rows): the quickest of each
 // mode, or one with fewer changes that is at most 10 min slower, or the one the traveler chose.
@@ -8607,7 +8622,7 @@ async function saveStops(sites, onStep, reserve) {
   return { done, made, total: sites.length, stopped: false };
 }
 // Quality check for every day of a trip (used by the automated planner test).
-if (typeof window !== "undefined") window.__kairouteLegs = i => { const pl = buildPlan(trip.days[i]); if (!pl || pl.error || !pl.items) return null; return pl.items.filter(x => x.type === "travel").map(x => ({ mode: x.leg.mode, how: x.leg.how, km: x.leg.km, min: x.leg.min, choices: (x.leg.choices || []).map(c => c.label + " " + c.min) })); };
+if (typeof window !== "undefined") window.__kairouteLegs = i => { const pl = buildPlan(trip.days[i]); if (!pl || pl.error || !pl.items) return null; return pl.items.filter(x => x.type === "travel").map(x => ({ mode: x.leg.mode, how: x.leg.how, km: x.leg.km, min: x.leg.min, note: x.leg.note || "", choices: (x.leg.choices || []).map(c => c.label + " " + c.min) })); };
 if (typeof window !== "undefined") window.__kairouteCrossings = () => trip.days.map((d, i) => { let r = window.__kairouteRoute(i); if (!r) return 0; r = r.filter(x => x.type !== "evening"); const h = r.findIndex(x => x.type === "stop" || x.type === "meal"); if (h > 0) r = r.slice(h - 1); if (r.length < 4) return 0; return crossCount(r[0], r.slice(1, -1), r[r.length - 1]); }); // the part the planner orders: from where the day's sights begin (after a bag drop) to the end point, without the evening dinner
 if (typeof window !== "undefined") window.__kairouteRoute = i => { bonusMemo = new Map(); mealMemo = new Map(); keptMemo = new Map(); eveMemo = new Map(); avoidMeals = new Set(); const pl = buildPlan(trip.days[i]); if (!pl || pl.error || !pl.items) return null;
   return pl.items.filter(x => x.place && x.type !== "travel").map(x => ({ type: x.type, name: x.place.name, lat: +x.place.lat, lng: +x.place.lng, time: x.time, min: x.place.minutes || 0, hours: x.place.hours || "", leg: x.leg ? (x.leg.how || x.leg.mode) : "" })); };
@@ -11140,10 +11155,10 @@ function renderPlan(d) {
   // Free time is the traveler's: the app adds nothing on its own, it names nearby sights that would still fit (Nov 18,
   // Richard: "I wouldn't do the suggested options. Just let them select to fill the spots"). It shows after the last
   // stop, before the ride back.
-  const spareT = plan.endBy - plan.end, sugT = (plan.suggest || []).filter(x => x.place && !(d.selected || []).includes(x.place.id));
+  const spareT = plan.endBy - plan.end, sugT = (plan.suggest || []).filter(x => x.place && !(d.selected || []).includes(x.place.id)).sort((a, b) => (b.must || b.voiced ? 1 : 0) - (a.must || a.voiced ? 1 : 0)); // must-sees and voiced tours first, marked
   const freeCard = spareT >= 30 || sugT.length ? `<div class="tl freetime"><div class="time"></div><div class="rail"><div class="dot bonusdot">+</div></div><div class="what"><div class="nm">Free time: ${dur(Math.max(0, spareT))}</div>
         <div class="sub">${sugT.length ? "Yours to spend as you like. These would still fit if you want one more stop:" : "Yours to spend as you like."}</div>
-        ${sugT.length ? `<div class="optacts">${sugT.map(x => `<button class="btn small" data-act="bonusadd" data-id="${esc(x.place.id)}">Add ${esc(x.place.name)} (${dur(x.minutes)}${x.far && x.rideMin ? ", " + dur(x.rideMin) + " each way" : ""})</button>`).join("")}</div>` : ""}</div></div>` : "";
+        ${sugT.length ? `<div class="optacts">${sugT.map(x => `<button class="btn small${x.must || x.voiced ? " mustadd" : ""}" data-act="bonusadd" data-id="${esc(x.place.id)}">${x.must ? `<span class="mustlbl">Must-see</span> ` : x.voiced ? `<span class="mustlbl">Voiced tour</span> ` : ""}Add ${esc(x.place.name)} (${dur(x.minutes)}${x.far && x.rideMin ? ", " + dur(x.rideMin) + " each way" : ""})</button>`).join("")}</div>` : ""}</div></div>` : "";
   let freeShown = false;
   const rows = plan.items.map((it, idx) => {
     const pv = plan.items[idx - 1], nx = plan.items[idx + 1], rideIn = pv && pv.type === "travel" && pv.leg.mode !== "walk" && legKind(pv.leg), rideOut = nx && nx.type === "travel" && nx.leg.mode !== "walk" && legKind(nx.leg);
@@ -18039,9 +18054,12 @@ if (typeof window !== "undefined" && window.ENGINE2 && window.KEngine) (function
   // The engine weighs many possible rides: it reads the answers known so far without asking for each one. The rides
   // it keeps are asked for when their day is shown (below), as the app does for its plans; an answer that arrives for
   // one of them changes what the plans used, so they are made again with it.
-  const answerOf = (a, b) => { let r; transitPeek = true; try { r = transitFor(a, b); } finally { transitPeek = false; } return r && r.map(o => ({ id: rideId(o), min: o.min, label: o.label, kind: rideKind(o) })); };
+  // The timetable answers as they are: the engine keeps one per kind of ride (part 1) and carries the chosen one's
+  // steps, departures and line on the ride itself.
+  const peek = (a, b) => { let r; transitPeek = true; try { r = transitFor(a, b); } finally { transitPeek = false; } return r; };
+  const answerOf = (a, b) => { const r = peek(a, b); return r && r.map(o => Object.assign({}, o, { id: rideId(o), kind: rideKind(o) })); };
   const askRides = ep => { (ep && ep.items || []).forEach(x => { if (x.t === "ride" && x.from && x.to && x.mode !== "walk" && x.mode !== "boat" && x.mode !== "lift") { try { transitFor(x.from, x.to); } catch (e) {} } }); };
-  const answerSig = (a, b) => JSON.stringify(answerOf(a, b));
+  const answerSig = (a, b) => JSON.stringify((peek(a, b) || []).map(o => [rideId(o), o.min, o.label]));
   // The whole trip planned once per change (the traveler's trip, an answer arriving, the guides, the date).
   const stat = { calls: 0, keyMs: 0, bucketMs: 0, checkMs: 0, used: 0, planned: 0 };
   window.__kairouteEngine2Stat = () => Object.assign({}, stat, { used: memo.used ? memo.used.size : 0 });
@@ -18077,7 +18095,7 @@ if (typeof window !== "undefined" && window.ENGINE2 && window.KEngine) (function
     if (window.PLACES2) { bucket = E.applyPlaces(bucket, window.PLACES2); guideFromPlaces(bucket); }
     // The app's own public transport answers for each ride (asked for any ride not known yet, as in the app).
     const used = new Map();
-    bucket.answers = (a, b) => { const r = answerOf(a, b); used.set(a.lat + "," + a.lng + ">" + b.lat + "," + b.lng, { a, b, sig: JSON.stringify(r) }); return r; };
+    bucket.answers = (a, b) => { const r = answerOf(a, b); used.set(a.lat + "," + a.lng + ">" + b.lat + "," + b.lng, { a, b, sig: answerSig(a, b) }); return r; };
     let plans; try { plans = E.planTrip(bucket); } catch (e) { console.warn("Beta 2 engine", e); plans = []; }
     // A day still on the app's own seeding (the traveler hasn't ticked or unticked anything there) shows what the
     // engine planned: its ticks become the engine's stops, so the picker, the counts and the plan always agree.
@@ -18100,6 +18118,7 @@ if (typeof window !== "undefined" && window.ENGINE2 && window.KEngine) (function
   window.__kairoutePiers = () => E.piersOf(tripPlans().bucket || {});
   window.__kairouteBoatPlace = id => { const b = tripPlans().bucket || {}; for (const c of Object.values(b.cities || {})) { const x = [...(c.sites || []), ...(c.farther || [])].find(y => String(y.id) === String(id)); if (x) return E.byBoat(x.travelNote) || E.waterOnly(x); } return false; };
   const MODE = { walk: "walk", ride: "ride", transit: "ride", boat: "ferry", lift: "ride" };
+  const UIKIND = { walk: "walk", taxi: "car", ferry: "ferry", bus: "bus", metro: "train", tram: "train", train: "train" };
   const byName = (list, name) => (list || []).find(r => r && r.name === name);
   function toApp(d, city, ep) {
     const w = dayWindow(d, city); if (w.error) return w;
@@ -18110,19 +18129,16 @@ if (typeof window !== "undefined" && window.ENGINE2 && window.KEngine) (function
     const at = (x, name, extra) => Object.assign({ name: name || x.name || "", lat: x.lat, lng: x.lng }, extra || {});
     ep.items.forEach((x, k) => {
       if (x.t === "ride") {
-        const leg = { mode: MODE[x.mode] || "ride", how: x.how || (x.mode === "walk" ? "Walk" : x.mode === "boat" ? "Boat" : x.mode === "lift" ? "Cable car" : "Taxi or car"), km: x.km || 0, min: x.min || 0 };
-        // Drawn and labelled as what it is: a boat as a ferry, a cable car with the rail-like lines (never as a taxi).
-        // The way to a ferry pier, or from it, says so (the boat leaves from the pier, not from the last sight).
-        if (x.pierName && x.mode !== "boat") { leg.how += (ep.items[k + 1] && ep.items[k + 1].t === "ride" ? " to the ferry at " : " from the ferry at ") + x.pierName; leg.pier = x.pierName; }
-        if (x.mode === "boat") leg.kind = "ferry"; else if (x.mode === "lift") leg.kind = "train";
-        else if (x.mode === "transit") leg.kind = ({ subway: "train", light_rail: "train", monorail: "train", tram: "train", train: "train", bus: "bus", ferry: "ferry" })[x.transitMode] || "train";
-        if (x.options) leg.options = x.options; if (x.from) leg.from = x.from; if (x.to) leg.to = x.to;
-        // Every way the engine weighed for this ride is a choice on the plan (the ride chips): a tap saves it as the
-        // traveler's own choice for this ride, and the engine plans with it.
+        // One ride record from the engine (part 1): its kind sets the icon and the line on the map, its label names what
+        // it is, its steps say how to make it, the guide's words are a note beside it.
+        const leg = { mode: MODE[x.mode] || "ride", kind: UIKIND[x.kind] || (x.mode === "walk" ? "walk" : "car"), how: x.how || (x.mode === "walk" ? "Walk" : "Taxi or car"), km: x.km || 0, min: x.min || 0 };
+        if (x.pierName) leg.pier = x.pierName; if (x.from) leg.from = x.from; if (x.to) leg.to = x.to; if (x.options) leg.options = x.options;
+        if (x.ans) leg.transit = x.ans; if (x.steps) leg.steps = x.steps; if (x.note) leg.note = x.note; if (x.lost) leg.lost = x.lost; if (x.slack) leg.slack = x.slack;
+        // Every way for this ride is a choice on the plan (the ride chips): a tap saves it as the traveler's own choice for
+        // this ride, and the engine plans with it.
         if (x.from && x.to && x.options && x.options.length > 1) {
-          const kindOf = o => o.mode === "walk" ? "walk" : o.mode === "boat" ? "ferry" : o.mode === "ride" ? "car" : o.kind === "bus" ? "bus" : "train";
-          leg.key = E.pairKey(x.pairFrom || x.from, x.pairTo || x.to); leg.choice = x.choice || (x.mode === "walk" ? "walk" : x.mode === "ride" ? "taxi" : x.mode === "boat" ? "boat" : "transit");
-          leg.choices = x.options.map(o => ({ id: o.id || (o.mode === "ride" ? "taxi" : o.mode), label: o.how, min: o.min, kind: kindOf(o) }));
+          leg.key = E.pairKey(x.pairFrom || x.from, x.pairTo || x.to); leg.choice = x.choice;
+          leg.choices = x.options.map(o => ({ id: o.id, label: o.how, min: o.min, kind: UIKIND[o.kind] || "car" }));
         }
         items.push({ type: "travel", leg, time: (items.length ? items[items.length - 1].time + (items[items.length - 1].dur || 0) : ep.start) }); return;
       }
@@ -18147,7 +18163,7 @@ if (typeof window !== "undefined" && window.ENGINE2 && window.KEngine) (function
     items.forEach((it, k) => { if (it.type !== "travel") return; const p = items[k - 1]; if (p) it.time = p.time + (p.type === "travel" ? p.leg.min : p.type === "meal" ? p.meal.len : p.place && p.place.minutes || 0); });
     const dropped = (ep.dropped || []).map(id => byId.get(String(id))).filter(Boolean);
     const walkKm = items.filter(i => i.type === "travel" && i.leg.mode === "walk").reduce((a, i) => a + (i.leg.km || 0), 0);
-    return { city, w: Object.assign({}, w, { start: ep.start, endBy: ep.endBy }), items, stops, dropped, folded: [], elsewhere: [], quickMeals: false, along: [], bonus: stops.filter(s => s.place.bonus).map(s => s.place), fill: [], suggest: (ep.suggest || []).map(x => { const p = byId.get(String(x.id)); return p ? { place: p, minutes: x.minutes, far: x.far, rideMin: x.rideMin } : null; }).filter(Boolean),
+    return { city, w: Object.assign({}, w, { start: ep.start, endBy: ep.endBy }), items, stops, dropped, folded: [], elsewhere: [], quickMeals: false, along: [], bonus: stops.filter(s => s.place.bonus).map(s => s.place), fill: [], suggest: (ep.suggest || []).map(x => { const p = byId.get(String(x.id)); return p ? { place: p, minutes: x.minutes, far: x.far, rideMin: x.rideMin, must: !!x.must, voiced: !!x.voiced } : null; }).filter(Boolean),
       meals, evening, swaps: [], closedToday: [], lock: { t: null, seq: stops.map(s => s.place.id), late: 0, quick: false, eve: "" }, locked: false, seen: false, seenBroke: false, seenSkipped: [],
       lockBroken: false, routeX: null, start: ep.start, endBy: ep.endBy, end: ep.end, walkKm, over: !!ep.over,
       engine2: { explain: ep.explain || [], waysToFit: ep.waysToFit || null, leftOut: ep.leftOut || [], safe: !!ep.safe } };
@@ -18167,4 +18183,4 @@ render();
 
 </script>
 <script>if ("serviceWorker" in navigator) addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));</script>
-<script>(function(){var B="57da092-1795062828";function ep(v){return +String(v).split("-").pop()||0}function busy(){return document.body&&document.body.classList.contains("touring-on")}function chk(){if(location.protocol!=="https:"||document.visibilityState!=="visible")return;fetch("version.txt",{cache:"no-store"}).then(function(r){return r.ok?r.text():""}).then(function(t){t=t.trim();if(!t||t===B||ep(t)<=ep(B)||busy())return;var k="kairoute.reloadedTo",s="";try{s=sessionStorage.getItem(k)||"";sessionStorage.setItem(k,t)}catch(e){}if(s===t){var u=new URL(location.href);if(u.searchParams.get("v")===t)return;u.searchParams.set("v",t);location.replace(u.href)}else location.reload()}).catch(function(){})}addEventListener("load",chk);addEventListener("pageshow",function(e){if(e.persisted)chk()});addEventListener("focus",chk);document.addEventListener("visibilitychange",chk);setInterval(chk,300000);if(navigator.serviceWorker)navigator.serviceWorker.addEventListener("message",function(e){if(e.data&&e.data.type==="kairoute-sw"){try{e.source.postMessage({type:"kairoute-alive"})}catch(x){}chk()}})})();</script>
+<script>(function(){var B="5b62df4-1795067026";function ep(v){return +String(v).split("-").pop()||0}function busy(){return document.body&&document.body.classList.contains("touring-on")}function chk(){if(location.protocol!=="https:"||document.visibilityState!=="visible")return;fetch("version.txt",{cache:"no-store"}).then(function(r){return r.ok?r.text():""}).then(function(t){t=t.trim();if(!t||t===B||ep(t)<=ep(B)||busy())return;var k="kairoute.reloadedTo",s="";try{s=sessionStorage.getItem(k)||"";sessionStorage.setItem(k,t)}catch(e){}if(s===t){var u=new URL(location.href);if(u.searchParams.get("v")===t)return;u.searchParams.set("v",t);location.replace(u.href)}else location.reload()}).catch(function(){})}addEventListener("load",chk);addEventListener("pageshow",function(e){if(e.persisted)chk()});addEventListener("focus",chk);document.addEventListener("visibilitychange",chk);setInterval(chk,300000);if(navigator.serviceWorker)navigator.serviceWorker.addEventListener("message",function(e){if(e.data&&e.data.type==="kairoute-sw"){try{e.source.postMessage({type:"kairoute-alive"})}catch(x){}chk()}})})();</script>
