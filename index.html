@@ -1784,7 +1784,11 @@ if (typeof module !== "undefined") module.exports = KEngine;
     const modeOf = (a, b) => { const k = modes[E.pairKey(a, b)]; if (k != null) return k; const r = modes[E.pairKey(b, a)]; if (r != null) return r;
       if (!chosenPairs.length || !a || !b || E.hav(a, b) < 5) return undefined;
       // (each end within 1.5 km, or a fifth of the ride: the ride out to a town 80 km away and its sights around it is the same from any hotel in the city)
-      const tol = Math.max(1.5, E.hav(a, b) / 5), c = chosenPairs.find(p => (E.hav(p.a, a) <= tol && E.hav(p.b, b) <= tol) || (E.hav(p.a, b) <= tol && E.hav(p.b, a) <= tol)); return c ? c.m : undefined; };
+      // When several choices are near enough, one made the same way round wins, then the closest (the ferry picked out to
+      // a town never decides the ride back from it, when the traveler chose that ride too).
+      const tol = Math.max(1.5, E.hav(a, b) / 5), pickOf = dist => { let best = null, bestD = Infinity; for (const p of chosenPairs) { const d = dist(p); if (d <= tol && d < bestD) { best = p; bestD = d; } } return best; };
+      const best = pickOf(p => Math.max(E.hav(p.a, a), E.hav(p.b, b))) || pickOf(p => Math.max(E.hav(p.a, b), E.hav(p.b, a)));
+      return best ? best.m : undefined; };
     function estimate(a, b) {
       if (!a || !b || !isFinite(a.lat) || !isFinite(b.lat)) return { mode: "walk", how: "Walk", km: 0, min: 0, unknown: true };
       // The cable car (or funicular) between a landing and the town above: its own fixed step holds the time.
@@ -1884,7 +1888,12 @@ if (typeof module !== "undefined") module.exports = KEngine;
       return leg;
     }
     const min = (a, b) => (a && b ? estimate(a, b).min : 0);
-    return { estimate, min, road, saidMin, chosen: (a, b) => modeOf(a, b) != null };
+    // The order of the day is worked out with the usual ride times, never with the way the traveler picked: a slower
+    // train they choose changes the clock, not which place comes first (Nov 18, Naples: picking the train made the day
+    // run another way round, the ride was no longer made, and the choice was refused).
+    let plain = null;
+    const orderMin = (a, b) => { if (!chosenPairs.length && !Object.keys(modes).length) return min(a, b); if (!plain) plain = E.makeTravel(prefs, null, legs, lines, answers); return plain.min(a, b); };
+    return { estimate, min, orderMin, road, saidMin, chosen: (a, b) => modeOf(a, b) != null };
   };
 })(KEngine);
 // Beta 2 engine, part 1b: public transport between two points (metro, light rail, tram, train), from the lines mapped
@@ -2396,8 +2405,8 @@ if (typeof module !== "undefined") module.exports = KEngine;
   E.eatKey = name => String(name || "").toLowerCase().normalize("NFKD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9]+/g, " ").trim();
   // Penalty of a timed day: running past the end is worst, then stops reached after their last entry, then a late lunch.
   const penalty = r => r.over * 1000 + r.late * 500 + (r.mealPen || 0) * 4 + r.waits * 0.5 + r.end * 0.01 + r.rideMin * 0.05;
-  function walk(seq, win, ctx) {
-    const r = E.walkDay(seq, win, ctx.tr.estimate, ctx.siteDay);
+  function walk(seq, win, ctx, from) {
+    const r = E.walkDay(seq, win, ctx.tr.estimate, ctx.siteDay, from);
     r.lateMeal = r.items.reduce((a, x) => a + (x.lateMeal || 0), 0);
     // A meal at a time the traveler set is held like a booked table: being late for it costs ten times as much.
     r.mealPen = r.items.reduce((a, x) => a + (x.lateMeal || 0) * (x.pinned ? 10 : 1), 0);
@@ -2441,7 +2450,17 @@ if (typeof module !== "undefined") module.exports = KEngine;
   };
   // Best place for lunch in an ordered day: each gap, each of the nearest places to eat; the lowest penalty wins.
   // quick: a rough check while trying a candidate stop (the nearest place to eat only); the chosen day gets the full search.
+  // The same order in the same day window always gets the same lunch, so each is worked out once per day (the
+  // move-by-move repair and the fill try many orders more than once).
   function withLunch(order, win, ctx, quick) {
+    if (!ctx.lunchMemo) ctx.lunchMemo = new WeakMap(); let wm = ctx.lunchMemo.get(win); if (!wm) ctx.lunchMemo.set(win, wm = new Map());
+    const key = (quick ? "q" : "f") + order.map(p => p.id + ":" + p.minutes + ":" + p.lat + ":" + p.lng + ":" + (p.far ? 1 : 0) + (p.bonus ? "b" : "") + (p.along ? "a" : "")).join("|");
+    let got = wm.get(key); if (!got) { if (wm.size > 20000) wm.clear(); wm.set(key, got = Object.assign(lunchFor(order, win, ctx, quick), { orderIn: order })); }
+    // The answer carries this call's own stops (the same places, perhaps as other objects).
+    if (got.orderIn === order) return got;
+    return Object.assign({}, got, { seq: got.seq.map(x => { const j = got.orderIn.indexOf(x); return j >= 0 ? order[j] : x; }) });
+  }
+  function lunchFor(order, win, ctx, quick) {
     const plain = walk(order, win, ctx), my = E.mealPlan(ctx, "Lunch"), L = my.meal;
     if (my.skip || !lunchWanted(win) || (!ctx.eats.length && !my.pick)) return { seq: order, r: plain };
     let best = null, tight = false;
@@ -2462,17 +2481,21 @@ if (typeof module !== "undefined") module.exports = KEngine;
       // The three least out of the way (each one is timed in full below, so only the likely winners are tried).
       const cands = my.pick ? [my.pick] : [...new Map((quick ? [a] : [a, b, mid]).filter(q => q && isFinite(q.lat)).flatMap(q => eatsNear(q, ctx, "Lunch", 3)).map(e => [e.k, e])).values()]
         .sort((x, y) => offOf(x) + (x.r.fromMap ? 0.3 : 0) - offOf(y) - (y.r.fromMap ? 0.3 : 0) || x.k.localeCompare(y.k)).slice(0, quick ? 1 : 3);
-      for (const e of cands) for (const len of [L.len, L.quick, E.TO_GO]) {
+      for (const e of cands) { let fullFits = false; for (const len of [L.len, L.quick, E.TO_GO]) {
+        // A shorter lunch only ever helps a day that runs over or reaches a stop late: once the full lunch has neither
+        // (and fits the margin), a quicker one can only cost more, so it isn't timed.
+        if (fullFits) break;
         // A sit-down lunch, a quicker one when the day is tight, or lunch on the go (bought and eaten walking on) when
         // only that keeps every stop: each a small cost, so the fuller lunch wins whenever it fits.
         const toGo = len === E.TO_GO;
         const meal = { id: "eat:" + e.k, eatKey: e.k, name: e.r.name, lat: e.r.lat, lng: e.r.lng, mealOf: L, len, quick: len < L.len, toGo, chosen: !!my.pick, fromMap: !!e.r.fromMap };
         const off = my.pick ? 0 : offOf(e);
-        const seq = order.slice(0, k).concat([meal], order.slice(k)), r = walk(seq, win, ctx), pen = penalty(r) + (toGo ? 60 : len < L.len ? 20 : 0) + off * 1.5 + (e.r.fromMap ? 0.5 : 0); // a km out of the way weighs like half an hour more riding
+        const seq = order.slice(0, k).concat([meal], order.slice(k)), r = walk(seq, win, ctx, { r: plain, k }), pen = penalty(r) + (toGo ? 60 : len < L.len ? 20 : 0) + off * 1.5 + (e.r.fromMap ? 0.5 : 0); // a km out of the way weighs like half an hour more riding
         // On a ship, train or plane day lunch is something the app adds, so it keeps the same margin as any added sight.
         if (win.hard && !r.over && win.endBy - r.end < E.FILL_MARGIN) { tight = true; continue; }
+        if (len === L.len && !r.over && !r.late) fullFits = true;
         if (!best || pen < best.pen - 1e-9) best = { seq, r, pen };
-      }
+      } }
     }
     // Lunch never makes the day run late or reach a stop after its last entry: then the day goes without (and says so).
     // Nor does it mean sitting idle waiting for the kitchen to open (lunch first, then a long ride out of town).
@@ -2487,12 +2510,12 @@ if (typeof module !== "undefined") module.exports = KEngine;
   // quick: skip the move-by-move repair (used to test a candidate; the day is repaired once it is chosen).
   function arrange(stops, win, ctx, quick) {
     const from = win.head[win.head.length - 1], to = win.tail.length ? win.tail[0] : null;
-    let order = E.bestOrder(stops, from, to, ctx.tr.min);
+    const om = ctx.tr.orderMin || ctx.tr.min; let order = E.bestOrder(stops, from, to, om);
     // A trip out of town is one block, first or last in the day, never wedged between sights in town.
     const far = stops.filter(s => s.far), near = stops.filter(s => !s.far);
     if (far.length && near.length) {
-      const farFirst = E.bestOrder(far, from, null, ctx.tr.min), a = farFirst.concat(E.bestOrder(near, farFirst[farFirst.length - 1], to, ctx.tr.min));
-      const nearFirst = E.bestOrder(near, from, null, ctx.tr.min), b = nearFirst.concat(E.bestOrder(far, nearFirst[nearFirst.length - 1], to, ctx.tr.min));
+      const farFirst = E.bestOrder(far, from, null, om), a = farFirst.concat(E.bestOrder(near, farFirst[farFirst.length - 1], to, om));
+      const nearFirst = E.bestOrder(near, from, null, om), b = nearFirst.concat(E.bestOrder(far, nearFirst[nearFirst.length - 1], to, om));
       const ca = withLunch(a, win, ctx, quick), cb = withLunch(b, win, ctx, quick);
       order = cost(ca) <= cost(cb) ? a : b;
     }
@@ -2609,32 +2632,35 @@ if (typeof module !== "undefined") module.exports = KEngine;
       const next = keep.concat([x.stop]), c = arrange(next, win, ctx);
       if (!c.r.over && !c.r.late && !(win.hard && win.endBy - c.r.end < E.FILL_MARGIN) && (c.noLunch !== "time" || cur.noLunch === "time" || wanted(x.stop))) { keep = next; cur = c; dropped = dropped.filter(y => y !== x); }
     }
+    // Spare time is the traveler's (Nov 18, Richard: "I wouldn't do the suggested options. Just let them select to fill
+    // the spots."): the app never adds a sight on its own. It names the best unused sights nearby that would still fit,
+    // each checked with the day as it is, for the traveler to add if they like. The day itself is only their picks.
+    const suggest = [];
     if (d.fillTime !== false && !win.straight) {
-      // Spare time: the best unused sights, each worth its detour (worth minus a quarter of the minutes of riding out and back
-      // from the nearest stop), added while the day still fits. Cheap check first, then the full timed day.
       const start = win.head[win.head.length - 1];
       const detour = s => 2 * Math.min(ctx.tr.min(start, s), ...keep.map(k => ctx.tr.min(k, s)));
       const farOk = s => keep.some(k => k.far && E.hav(k, s) <= 2.5); // the rest of a day-trip town, never a day in the city
       // A listing within a few steps of a stop already planned is the same place under another name, or part of it.
       const cands = pool.filter(s => !keep.some(k => String(k.id) === String(s.id) || (E.hav(k, s) < 0.08 && !wanted(s))) && (!s.far || farOk(s)) && (ctx.mayAdd ? ctx.mayAdd(s.id) : ctx.ledger.sightFree(s.id, ctx.dayIdx)))
-        .map(s => { const dt = detour(s); return { s, v: wanted(s) && dt <= 10 ? Math.max(1, s.worth || 0) : (s.worth || 0) - 0.25 * dt }; }) // a voiced sight a few steps off the walk is always worth it.filter(x => x.v > 0).sort((a, b) => b.v - a.v || E.byId(a.s, b.s));
+        .map(s => { const dt = detour(s), near = wanted(s) && dt <= 10; return { s, near, v: near ? Math.max(1, s.worth || 0) : (s.worth || 0) - 0.25 * dt }; })
+        // a must-see or a finished voiced tour a few steps off the day's walk is offered first
+        // (any that would fit is worth naming: the traveler decides, so a lesser one is offered when nothing better fits)
+        .sort((a, b) => (b.near - a.near) || b.v - a.v || E.byId(a.s, b.s));
       const room = win.hard ? E.FILL_MARGIN : 0;
-      let tries = 0, added = false;
+      let tries = 0;
       for (const { s } of cands) {
-        if (tries >= 25) break;
-        const add = Object.assign({}, s, { filled: true }), next = keep.concat([add]);
+        if (tries >= 12 || suggest.length >= 4) break;
+        const next = keep.concat([s]);
         const rough = E.walkDay(E.bestOrder(next, start, win.tail.length ? win.tail[0] : null, ctx.tr.min), win, ctx.tr.estimate, ctx.siteDay);
-        if (rough.over || win.endBy - rough.end < room) continue;
+        if (rough.over || rough.late || win.endBy - rough.end < room) continue;
         tries++;
+        const fitsDay = x => !x.r.over && !x.r.late && win.endBy - x.r.end >= room && (x.noLunch !== "time" || cur.noLunch === "time");
         let c = arrange(next, win, ctx, true);
-        const fits = x => !x.r.over && !x.r.late && win.endBy - x.r.end >= room && (x.noLunch !== "time" || cur.noLunch === "time");
-        if (!fits(c) && tries <= 2) c = arrange(next, win, ctx); // the first two also get the full repair
-        if (fits(c)) { keep = next; cur = c; added = true; }
+        if (!fitsDay(c) && tries <= 4) c = arrange(next, win, ctx); // the first few also get the full repair
+        if (!c.r.over && !c.r.late && win.endBy - c.r.end >= room && (c.noLunch !== "time" || cur.noLunch === "time")) suggest.push({ id: s.id, name: s.name, minutes: s.minutes || 0, far: !!s.far });
       }
-      // The day as filled gets the full lunch search and repair, kept when it is no worse for time.
-      if (added || cur.noLunch || cur.r.late) { const full = arrange(keep, win, ctx); if (full.r.over <= cur.r.over && full.r.late <= cur.r.late && (!win.hard || win.endBy - full.r.end >= room || win.endBy - full.r.end >= win.endBy - cur.r.end)) cur = full; }
     }
-    return { seq: cur.seq, r: cur.r, kept: keep, dropped, noLunch: lunchWanted(win) ? cur.noLunch || null : null };
+    return { seq: cur.seq, r: cur.r, kept: keep, dropped, suggest, noLunch: lunchWanted(win) ? cur.noLunch || null : null };
   };
   // A dinner suggestion after a land day: the nearest open place to eat not used on another day.
   // The traveler's dinner choice wins: skipped means none; a chosen place is used at its set time (or 6:30 pm), never
@@ -2653,10 +2679,13 @@ if (typeof module !== "undefined") module.exports = KEngine;
 // candidate order (with stable estimates) and to write the shown plan (with live ride times when given).
 (function (E) {
   // seq: stops and meals in order. win: the day's window. ride(a, b) -> leg { min, mode }. siteDay(id) -> today's hours facts.
-  E.walkDay = (seq, win, ride, siteDay) => {
-    const items = [], O = win.head[0], Z = win.tail.length ? win.tail[win.tail.length - 1] : null;
+  // from: { r, k } resumes from an earlier walk r of the same day whose first k stops match seq (lunch tried in each
+  // gap re-walks only from that gap on); the answer is the same as walking seq from the start.
+  E.walkDay = (seq, win, ride, siteDay, from) => {
+    const O = win.head[0], Z = win.tail.length ? win.tail[win.tail.length - 1] : null, st = from && from.r.states && from.r.states[from.k];
+    const items = st ? from.r.items.slice(0, st.n) : [], states = [];
     let clock = win.start, prev = O, late = 0, waits = 0, rideMin = 0;
-    items.push({ t: "start", name: O && O.name, at: clock });
+    if (st) ({ clock, prev, late, waits, rideMin } = st); else items.push({ t: "start", name: O && O.name, at: clock });
     const go = (p, type) => {
       const leg = ride(prev, p); items.push(Object.assign({ t: "ride", mode: leg.mode, min: leg.min, km: Math.round((leg.km || 0) * 100) / 100 }, leg.how && leg.mode !== "walk" ? { how: leg.how } : {}, leg.options ? { options: leg.options } : {}, leg.transitMode ? { transitMode: leg.transitMode } : {}, leg.choice ? { choice: leg.choice } : {})); clock += leg.min; rideMin += leg.min;
       const it = { t: type, id: p.id || null, name: p.name, min: p.minutes || 0 };
@@ -2666,12 +2695,14 @@ if (typeof module !== "undefined") module.exports = KEngine;
       if (type === "meal") { const m = p.mealOf; if (clock < m.from) { waits += m.from - clock; clock = m.from; } it.meal = m.label; it.min = p.len || m.len; if (m.booked) it.booked = true; if (m.pinned) it.pinned = true; if (p.chosen) it.chosen = true; if (p.toGo) it.toGo = true; if (p.fromMap) it.fromMap = true; if (clock > m.to) it.lateMeal = clock - m.to; }
       it.at = clock; items.push(it); clock += it.min; prev = p;
     };
-    win.head.slice(1).forEach(p => go(p, "fixed"));
-    seq.forEach(p => go(p, p.mealOf ? "meal" : "stop"));
+    const keep = () => states.push({ clock, prev, late, waits, rideMin, n: items.length });
+    if (st) { for (let i = 0; i <= from.k; i++) states.push(from.r.states[i]); }
+    else { win.head.slice(1).forEach(p => go(p, "fixed")); keep(); }
+    seq.forEach((p, i) => { if (st && i < from.k) return; go(p, p.mealOf ? "meal" : "stop"); keep(); });
     win.tail.forEach((p, i) => go(Object.assign({}, p, { minutes: p.fixed ? p.minutes : 0 }), i === win.tail.length - 1 ? "end" : "fixed"));
     if (!Z) items.push({ t: "end", name: "Day done", at: clock });
     const end = clock, over = end - win.endBy;
-    return { items, end, late, waits, rideMin, over: over > (win.hard ? 0 : 5) ? over : 0 };
+    return { items, end, late, waits, rideMin, over: over > (win.hard ? 0 : 5) ? over : 0, states };
   };
 })(KEngine);
 // Beta 2 engine, the whole trip: bucket in, plans out. Days are built hearted (locked) days first, then in date order,
@@ -2713,14 +2744,17 @@ if (typeof module !== "undefined") module.exports = KEngine;
       const prev = items[items.length - 1], here = point(whereIs(x));
       if (prev && prev.t === "ride" && items.length >= 2) { const a = items[items.length - 2]; if (isFinite(a.lat) && isFinite(here.lat)) Object.assign(prev, { from: { lat: a.lat, lng: a.lng }, to: here }); }
       const src = x.id != null ? byId.get(String(x.id)) : null;
-      const it = { t: x.t, id: x.t === "meal" ? null : x.id, name: x.name, at: x.at, min: x.min, bonus: x.t === "stop" && autoIds.has(String(x.id)) && (own || !(src && E.wantedStop(src))), along: false, meal: x.meal || null, late: x.late || 0 };
+      // Every stop on a plan is a pick: the traveler's, or the app's starting picks on a day they haven't touched (shown
+      // ticked). Nothing is optional (Nov 18, Richard).
+      const it = { t: x.t, id: x.t === "meal" ? null : x.id, name: x.name, at: x.at, min: x.min, bonus: false, along: false, meal: x.meal || null, late: x.late || 0 };
       if (x.wait) it.wait = x.wait; if (x.chosen) it.chosen = true; if (x.pinned) it.pinned = true;
       Object.assign(it, point(whereIs(x)));
       items.push(it);
     }
     if (dinner) items.push({ t: "evening", id: null, name: dinner.name, at: dinner.at, min: dinner.min, lat: dinner.lat, lng: dinner.lng, bonus: false, along: false, meal: "Dinner", late: 0, chosen: !!dinner.chosen });
     return { i, start: win.start, endBy: win.endBy, end: fit.r.end, over: fit.r.over > 0, straight: !!win.straight,
-      head: win.head.map(x => ({ name: x.name, fixed: !!x.fixed, minutes: x.fixed ? x.minutes : 0 })), tail: win.tail.map(x => ({ name: x.name, fixed: !!x.fixed, minutes: x.fixed ? x.minutes : 0 })), items };
+      head: win.head.map(x => ({ name: x.name, fixed: !!x.fixed, minutes: x.fixed ? x.minutes : 0 })), tail: win.tail.map(x => ({ name: x.name, fixed: !!x.fixed, minutes: x.fixed ? x.minutes : 0 })), items,
+      suggest: (fit.suggest || []).slice() };
   }
   // Step 8: the final guard. Any broken safety rule turns the day into a safe day that says why.
   function guard(plan, win) {
@@ -2949,7 +2983,7 @@ if (typeof module !== "undefined") module.exports = KEngine;
       let now = null;
       if (was.spare >= 30 && unused) {
         now = planDay(i, was);
-        if (!(keepsAll(now) && now.kept.length > was.kept.length)) { undo(now); now = null; }
+        if (!(keepsAll(now) && now.kept.length > was.kept.length)) { undo(now); if (was.plan && was.plan.suggest && now.plan && now.plan.suggest) now.plan.suggest.forEach(x => { if (!was.plan.suggest.some(y => String(y.id) === String(x.id))) was.plan.suggest.push(x); }); now = null; } // what would fit, seen with the other days planned
       }
       // A trip out to the best farther sight nobody has used, when it gives more than the sights it replaces (the
       // traveler's own picks always stay). On a ship, train or plane day only by road, an hour at most each way, and only
@@ -2974,16 +3008,10 @@ if (typeof module !== "undefined") module.exports = KEngine;
         // onto a full day in town. Nor a sight beside a trip out planned on another day (it belongs to that day).
         .filter(s => away(s) <= E.PAD_MAX && !otherDayFar(s, i))
         .filter(s => !was.win.hard || shortRoad(s) || boatOk(s)).slice(0, 3);
-      const wished = was.kept.filter(k => !k.filled); // only what the app added to fill spare time may give way
-      for (const f of far) {
-        const cur = now || was;
-        if (now) undo(now);
-        const r = planDay(i, Object.assign({}, was, { kept: wished, extra: f.id }));
-        const better = r.kept && (!was.win.hard || r.spare >= (E.byBoat(f.travelNote || "") ? 60 : 45)) && wished.every(w => r.kept.some(k => String(k.id) === String(w.id))) && r.kept.some(k => String(k.id) === String(f.id)) && worthOf(r) > worthOf(cur);
-        if (better) { now = r; continue; }
-        undo(r);
-        if (now) now.sightIds.forEach(id => ledger.claimSight(id, i)), now.eatIds.forEach(k => ledger.claimEat(k, i));
-      }
+      // Spare time is the traveler's: a trip out that would fit is named for them to add, never added on its own
+      // (Nov 18, Richard: "Just let them select to fill the spots").
+      if (was.plan && was.plan.suggest) for (const f of far) if (was.spare >= 2 * away(f) + (f.minutes || 60) + (was.win.hard ? 45 : 0) && !was.plan.suggest.some(x => String(x.id) === String(f.id)))
+        was.plan.suggest.push({ id: f.id, name: f.name, minutes: f.minutes || 60, far: true, rideMin: Math.round(away(f)) });
       if (now) { done[i] = now; out[i] = now.plan; continue; }
       // Time left on a ship day and a trip out by boat the guide names: say so, with the time to be back on shore.
       if (was.win.hard && d.type === "port" && was.plan && was.plan.items) {
@@ -3001,11 +3029,11 @@ if (typeof module !== "undefined") module.exports = KEngine;
       if (!left.length) return; p.leftOut = left.map(s => s.id);
       const names = left.slice(0, 4).map(s => s.name).concat(left.length > 4 ? [(left.length - 4) + " more"] : []);
       p.explain = (p.explain || []).concat([(d.own ? "Also worth seeing here, not on your list: " : "Also worth seeing here, but not in today's time: ") + E.listWords(names, "and") + "."]); });
-    // Never a silent gap of time either: an hour and a half or more left at the end of a day are named as free time,
+    // Never a silent gap of time either: an hour or more left at the end of a day are named as free time,
     // with the nearest trip out nobody took and why it wasn't added (it doesn't fit, or not with a safe margin).
     const hm = m => { const h = Math.floor(m / 60), r = Math.round(m % 60); return (h ? h + " h" : "") + (h && r ? " " : "") + (r ? r + " min" : ""); };
     out.forEach((p, i) => { if (!p || !p.items || p.safe || !isFinite(p.end) || !isFinite(p.endBy)) return;
-      const free = p.endBy - p.end, win = wins[i]; if (free < 90 || !win) return;
+      const free = p.endBy - p.end, win = wins[i]; if (free < 60 || !win) return;
       const said = (p.explain || []).join(" "); if (/free time|time left/i.test(said)) return;
       const d = days[i], city = guides[d.city] || {}, from = win.head[win.head.length - 1];
       const stops = p.items.filter(x => x.t === "stop" && isFinite(x.lat)), near = [from].concat(stops);
@@ -3020,6 +3048,8 @@ if (typeof module !== "undefined") module.exports = KEngine;
         : ` ${far.s.name} (about ${hm(far.need)} there and back with the visit) is a trip of its own: pick it for a day to plan it.`;
       if (fars[1] && !d.own) why += ` Also a trip of its own: ${fars[1].s.name}, about ${hm(fars[1].need)}.`;
       p.explain = (p.explain || []).concat([`Free time: about ${hm(free)} left after the last stop, before ${win.hard ? "the time to be back" : "the day ends"} (${E.clock(p.endBy)}). Linger where you like.${why}`]); });
+    // A sight offered for free time is never one planned on any day.
+    out.forEach(p => { if (p && p.suggest) p.suggest = p.suggest.filter(x => !plannedIds.has(String(x.id))); });
     // Each thing said once.
     out.forEach(p => { if (p && p.explain) p.explain = p.explain.filter((t, k, a) => a.indexOf(t) === k); });
     return out;
@@ -5243,12 +5273,16 @@ function switchRide(key, val, force) {
   // The ride between the same two places, whichever way the day now runs and even from a stop next door (the lunch
   // place, a sight beside it): the engine applies the choice to it (Nov 18, Sorrento and Pompeii).
   const kp = String(key).split(",").map(Number), tol = kp.length === 4 ? Math.max(1.5, hav({ lat: kp[0], lng: kp[1] }, { lat: kp[2], lng: kp[3] }) / 5) : 1.5, near2 = (x, i) => x && isFinite(x.lat) && hav({ lat: kp[i], lng: kp[i + 1] }, x) <= tol;
-  const sameRide = l => l && (l.key === key || (kp.length === 4 && l.from && l.to && ((near2(l.from, 0) && near2(l.to, 2)) || (near2(l.from, 2) && near2(l.to, 0)))));
-  const choice = c => { const leg = after.items.concat(before.items).find(i => i.type === "travel" && sameRide(i.leg)); return leg && leg.leg.choices.find(x => x.id === c); };
+  // Out and back between the same two places are two rides: the one tapped is found by its own key first, then the same
+  // way round from nearby, and only then the other way round (Nov 18: the ferry back couldn't be picked once the train
+  // was taken out, because the check found the ride out).
+  const fwd = l => l && kp.length === 4 && l.from && l.to && near2(l.from, 0) && near2(l.to, 2), rev = l => l && kp.length === 4 && l.from && l.to && near2(l.from, 2) && near2(l.to, 0);
+  const findRide = items => { const ts = items.filter(i => i.type === "travel"); return ts.find(i => i.leg.key === key) || ts.find(i => fwd(i.leg)) || ts.find(i => rev(i.leg)); };
+  const choice = c => { const leg = findRide(after.items) || findRide(before.items); return leg && (leg.leg.choices || []).find(x => x.id === c); };
   const label = c => { const ch = choice(c); return ch ? ch.label : "that ride"; };
-  const cur = before.items.find(i => i.type === "travel" && sameRide(i.leg)), nowId = cur ? cur.leg.choice : was;
+  const cur = findRide(before.items), nowId = cur ? cur.leg.choice : was;
   if (after.error || after.over) { back(); rideNotice = { key, text: `${esc(label(val))} would get you back after ${fmt(after.endBy || 0)}, too late for the ship, so the plan keeps the ride it had.` }; }
-  else { const lost = names(before).filter(n => !names(after).includes(n)), used = after.items.find(i => i.type === "travel" && sameRide(i.leg));
+  else { const lost = names(before).filter(n => !names(after).includes(n)), used = findRide(after.items);
     // With the new ride the day may work better in another order that no longer makes this ride at all: then the
     // choice would do nothing (and vanish from the menu), so the plan keeps the ride it had and says so.
     if (!lost.length && !(used && used.leg.choice === val)) { back(); rideNotice = { key, text: `With ${esc(label(val))} the day works better in another order that doesn't make this ride, so the plan keeps ${esc(label(nowId))}.` }; }
@@ -11027,8 +11061,16 @@ ${partsList(s, it.time)}${stopLiveNotes(it, d)}</div></div>`;
     }
     if (it.type === "end") {
       const spare = plan.endBy - plan.end;
-      return `<div class="${cls}">${tcell(it)}<div class="rail"><div class="dot start">${it.place ? "E" : "✓"}</div></div><div class="what"><div class="nm">${esc(it.label)}</div>
-      <div class="sub">${d.type === "port" ? `All aboard ${esc(d.allAboard)}, so you have a 45-minute cushion${spare > 10 ? " plus " + dur(spare) + " spare" : ""}.` :
+      // Free time is the traveler's: the app adds nothing on its own, it names nearby sights that would still fit
+      // (Nov 18, Richard: "I wouldn't do the suggested options. Just let them select to fill the spots").
+      const sug = (plan.suggest || []).filter(x => x.place && !(d.selected || []).includes(x.place.id));
+      const free = spare >= 30 || sug.length ? `<div class="tl freetime"><div class="time"></div><div class="rail"><div class="dot bonusdot">+</div></div><div class="what"><div class="nm">Free time: ${dur(spare)}</div>
+        <div class="sub">${sug.length ? "Yours to spend as you like. These would still fit if you want one more stop:" : "Yours to spend as you like."}</div>
+        ${sug.length ? `<div class="optacts">${sug.map(x => `<button class="btn small" data-act="bonusadd" data-id="${esc(x.place.id)}">Add ${esc(x.place.name)} (${dur(x.minutes)}${x.far && x.rideMin ? ", " + dur(x.rideMin) + " each way" : ""})</button>`).join("")}</div>` : ""}</div></div>` : "";
+      // Back at the ship said plainly: the time back, how long before all aboard, and the rule behind it.
+      const early = d.type === "port" && d.allAboard ? plan.endBy - plan.end + (plan.w.buffer || 45) : NaN;
+      return free + `<div class="${cls}">${tcell(it)}<div class="rail"><div class="dot start">${it.place ? "E" : "✓"}</div></div><div class="what"><div class="nm">${esc(it.label)}</div>
+      <div class="sub">${d.type === "port" ? (isFinite(early) ? `Back ${dur(early)} before all aboard (${esc(d.allAboard)}). Kairoute always plans you back at least ${dur(plan.w.buffer || 45)} early.` : `All aboard ${esc(d.allAboard)}.`) :
         spare > 10 ? dur(spare) + " to spare." : ""}</div>
       ${(plan.w.notesEnd || []).map(t => `<div class="sub">${esc(t)}</div>`).join("")}${d.type === "departure" ? bookRideCard(d) : ""}</div></div>`;
     }
@@ -17985,7 +18027,7 @@ if (typeof window !== "undefined" && window.ENGINE2 && window.KEngine) (function
     items.forEach((it, k) => { if (it.type !== "travel") return; const p = items[k - 1]; if (p) it.time = p.time + (p.type === "meal" ? p.meal.len : p.place && p.place.minutes || 0); });
     const dropped = (ep.dropped || []).map(id => byId.get(String(id))).filter(Boolean);
     const walkKm = items.filter(i => i.type === "travel" && i.leg.mode === "walk").reduce((a, i) => a + (i.leg.km || 0), 0);
-    return { city, w: Object.assign({}, w, { start: ep.start, endBy: ep.endBy }), items, stops, dropped, folded: [], elsewhere: [], quickMeals: false, along: [], bonus: stops.filter(s => s.place.bonus).map(s => s.place), fill: [],
+    return { city, w: Object.assign({}, w, { start: ep.start, endBy: ep.endBy }), items, stops, dropped, folded: [], elsewhere: [], quickMeals: false, along: [], bonus: stops.filter(s => s.place.bonus).map(s => s.place), fill: [], suggest: (ep.suggest || []).map(x => { const p = byId.get(String(x.id)); return p ? { place: p, minutes: x.minutes, far: x.far, rideMin: x.rideMin } : null; }).filter(Boolean),
       meals, evening, swaps: [], closedToday: [], lock: { t: null, seq: stops.map(s => s.place.id), late: 0, quick: false, eve: "" }, locked: false, seen: false, seenBroke: false, seenSkipped: [],
       lockBroken: false, routeX: null, start: ep.start, endBy: ep.endBy, end: ep.end, walkKm, over: !!ep.over,
       engine2: { explain: ep.explain || [], waysToFit: ep.waysToFit || null, leftOut: ep.leftOut || [], safe: !!ep.safe } };
@@ -18005,4 +18047,4 @@ render();
 
 </script>
 <script>if ("serviceWorker" in navigator) addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));</script>
-<script>(function(){var B="7f9ebc0-1795047470";function ep(v){return +String(v).split("-").pop()||0}function busy(){return document.body&&document.body.classList.contains("touring-on")}function chk(){if(location.protocol!=="https:"||document.visibilityState!=="visible")return;fetch("version.txt",{cache:"no-store"}).then(function(r){return r.ok?r.text():""}).then(function(t){t=t.trim();if(!t||t===B||ep(t)<=ep(B)||busy())return;var k="kairoute.reloadedTo",s="";try{s=sessionStorage.getItem(k)||"";sessionStorage.setItem(k,t)}catch(e){}if(s===t){var u=new URL(location.href);if(u.searchParams.get("v")===t)return;u.searchParams.set("v",t);location.replace(u.href)}else location.reload()}).catch(function(){})}addEventListener("load",chk);addEventListener("pageshow",function(e){if(e.persisted)chk()});addEventListener("focus",chk);document.addEventListener("visibilitychange",chk);setInterval(chk,300000);if(navigator.serviceWorker)navigator.serviceWorker.addEventListener("message",function(e){if(e.data&&e.data.type==="kairoute-sw"){try{e.source.postMessage({type:"kairoute-alive"})}catch(x){}chk()}})})();</script>
+<script>(function(){var B="374fc4c-1795049971";function ep(v){return +String(v).split("-").pop()||0}function busy(){return document.body&&document.body.classList.contains("touring-on")}function chk(){if(location.protocol!=="https:"||document.visibilityState!=="visible")return;fetch("version.txt",{cache:"no-store"}).then(function(r){return r.ok?r.text():""}).then(function(t){t=t.trim();if(!t||t===B||ep(t)<=ep(B)||busy())return;var k="kairoute.reloadedTo",s="";try{s=sessionStorage.getItem(k)||"";sessionStorage.setItem(k,t)}catch(e){}if(s===t){var u=new URL(location.href);if(u.searchParams.get("v")===t)return;u.searchParams.set("v",t);location.replace(u.href)}else location.reload()}).catch(function(){})}addEventListener("load",chk);addEventListener("pageshow",function(e){if(e.persisted)chk()});addEventListener("focus",chk);document.addEventListener("visibilitychange",chk);setInterval(chk,300000);if(navigator.serviceWorker)navigator.serviceWorker.addEventListener("message",function(e){if(e.data&&e.data.type==="kairoute-sw"){try{e.source.postMessage({type:"kairoute-alive"})}catch(x){}chk()}})})();</script>
