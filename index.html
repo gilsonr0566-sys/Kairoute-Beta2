@@ -2618,7 +2618,9 @@ if (typeof module !== "undefined") module.exports = KEngine;
     if (ctx.ownOrder) return ownOrder(stops, win, ctx);
     const pt = ctx.tr.plainTr && ctx.tr.plainTr();
     if (!pt) return arrangeBy(stops, win, ctx, quick);
-    const pctx = Object.assign({}, ctx, { tr: pt }), got = arrangeBy(stops, win, pctx, quick);
+    // Its own lunch memo: a day timed by the plain rides is never reused as the day timed by the traveler's choices (Nov 19:
+    // the train picked for a day trip was planned as a taxi, with no word why, when the plain day was worked out first).
+    const pctx = Object.assign({}, ctx, { tr: pt, lunchMemo: ctx.plainLunchMemo || (ctx.plainLunchMemo = new WeakMap()) }), got = arrangeBy(stops, win, pctx, quick);
     const byId = new Map(stops.map(s => [String(s.id), s]));
     return withLunch(got.seq.filter(x => !x.mealOf).map(x => byId.get(String(x.id)) || x), win, ctx, quick);
   }
@@ -2797,6 +2799,7 @@ if (typeof module !== "undefined") module.exports = KEngine;
 // order gives, including any stop reached after its last entry and whether the day ends in time. Used both to check a
 // candidate order (with stable estimates) and to write the shown plan (with live ride times when given).
 (function (E) {
+  E.MEAL_SEATED = 15; // minutes early at a place to eat that are no idle wait
   // seq: stops and meals in order. win: the day's window. ride(a, b) -> leg { min, mode }. siteDay(id) -> today's hours facts.
   // from: { r, k } resumes from an earlier walk r of the same day whose first k stops match seq (lunch tried in each
   // gap re-walks only from that gap on); the answer is the same as walking seq from the start.
@@ -2811,7 +2814,9 @@ if (typeof module !== "undefined") module.exports = KEngine;
       if (type === "stop") { const sd = siteDay ? siteDay(p.id) : null, f = E.hoursFit(sd && sd.oh, clock, p.minutes);
         if (f.wait) { clock += f.wait; waits += f.wait; it.wait = f.wait; } if (f.late > 0) { late++; it.late = f.late; }
         if (p.bonus) it.bonus = true; if (p.along) it.along = true; }
-      if (type === "meal") { const m = p.mealOf; if (clock < m.from) { waits += m.from - clock; clock = m.from; } it.meal = m.label; it.min = p.len || m.len; if (m.booked) it.booked = true; if (m.pinned) it.pinned = true; if (p.chosen) it.chosen = true; if (p.toGo) it.toGo = true; if (p.fromMap) it.fromMap = true; if (clock > m.to) it.lateMeal = clock - m.to; }
+      // Early at a place to eat: seated with a drink and the menu, the first quarter hour is no idle wait (Nov 19: lunch
+      // 1.7 km out of the way, to save five minutes before the kitchen opened). Longer is still a wait.
+      if (type === "meal") { const m = p.mealOf; if (clock < m.from) { waits += Math.max(0, m.from - clock - E.MEAL_SEATED); clock = m.from; } it.meal = m.label; it.min = p.len || m.len; if (m.booked) it.booked = true; if (m.pinned) it.pinned = true; if (p.chosen) it.chosen = true; if (p.toGo) it.toGo = true; if (p.fromMap) it.fromMap = true; if (clock > m.to) it.lateMeal = clock - m.to; }
       it.at = clock; items.push(it); clock += it.min; prev = p;
     };
     const keep = () => states.push({ clock, prev, late, waits, rideMin, n: items.length });
@@ -18250,4 +18255,4 @@ render();
 
 </script>
 <script>if ("serviceWorker" in navigator) addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));</script>
-<script>(function(){var B="d1b6164-1795089050";function ep(v){return +String(v).split("-").pop()||0}function busy(){return document.body&&document.body.classList.contains("touring-on")}function chk(){if(location.protocol!=="https:"||document.visibilityState!=="visible")return;fetch("version.txt",{cache:"no-store"}).then(function(r){return r.ok?r.text():""}).then(function(t){t=t.trim();if(!t||t===B||ep(t)<=ep(B)||busy())return;var k="kairoute.reloadedTo",s="";try{s=sessionStorage.getItem(k)||"";sessionStorage.setItem(k,t)}catch(e){}if(s===t){var u=new URL(location.href);if(u.searchParams.get("v")===t)return;u.searchParams.set("v",t);location.replace(u.href)}else location.reload()}).catch(function(){})}addEventListener("load",chk);addEventListener("pageshow",function(e){if(e.persisted)chk()});addEventListener("focus",chk);document.addEventListener("visibilitychange",chk);setInterval(chk,300000);if(navigator.serviceWorker)navigator.serviceWorker.addEventListener("message",function(e){if(e.data&&e.data.type==="kairoute-sw"){try{e.source.postMessage({type:"kairoute-alive"})}catch(x){}chk()}})})();</script>
+<script>(function(){var B="7b7a597-1795095523";function ep(v){return +String(v).split("-").pop()||0}function busy(){return document.body&&document.body.classList.contains("touring-on")}function chk(){if(location.protocol!=="https:"||document.visibilityState!=="visible")return;fetch("version.txt",{cache:"no-store"}).then(function(r){return r.ok?r.text():""}).then(function(t){t=t.trim();if(!t||t===B||ep(t)<=ep(B)||busy())return;var k="kairoute.reloadedTo",s="";try{s=sessionStorage.getItem(k)||"";sessionStorage.setItem(k,t)}catch(e){}if(s===t){var u=new URL(location.href);if(u.searchParams.get("v")===t)return;u.searchParams.set("v",t);location.replace(u.href)}else location.reload()}).catch(function(){})}addEventListener("load",chk);addEventListener("pageshow",function(e){if(e.persisted)chk()});addEventListener("focus",chk);document.addEventListener("visibilitychange",chk);setInterval(chk,300000);if(navigator.serviceWorker)navigator.serviceWorker.addEventListener("message",function(e){if(e.data&&e.data.type==="kairoute-sw"){try{e.source.postMessage({type:"kairoute-alive"})}catch(x){}chk()}})})();</script>
