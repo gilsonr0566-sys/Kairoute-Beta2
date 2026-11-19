@@ -1635,6 +1635,9 @@ if (typeof module !== "undefined") module.exports = KEngine;
   const SPECIAL = /tasting|winer|wine|vineyard|weingut|vino|brewer|brauerei|beer|distill|marzipan|chocolat|praline|ice ?cream|gelat|\beis|patisser|bakery|bäckerei|konditorei|roast|coffee|cheese|fromag|specialt|historic/i;
   E.foodSpecial = x => SPECIAL.test(String(x.name || "") + " " + String(x.content || x.note || ""));
   const copy = x => JSON.parse(JSON.stringify(x));
+  // A name a traveler reading English can read: Latin letters (accents too), digits and punctuation. A place to eat on the
+  // map named only in another script is left out: no one can find it by a name they can't read (Nov 19, a Hebrew name).
+  E.readable = name => !!name && !/[^\u0000-\u024F\u1E00-\u1EFF\u2000-\u206F\u20A0-\u20CF\s]/.test(String(name));
   E.applyPlaces = (bucket, places) => {
     const b = copy(bucket), notes = b.placeNotes = [];
     const guides = b.cities || {};
@@ -1677,7 +1680,7 @@ if (typeof module !== "undefined") module.exports = KEngine;
       // Restaurants and cafés on the map beside the place's sights: lunch where the traveler is, never a detour back to the
       // few the guide names (Nov 18, Corpus Christi). Kept apart as from the map (no review behind them).
       if ((P.cityEats || []).length) { const have = new Set((city.restaurants || []).map(r => E.eatKey(r.name)));
-        city.restaurants = (city.restaurants || []).concat(P.cityEats.filter(x => x.name && isFinite(x.lat) && isFinite(x.lng) && !have.has(E.eatKey(x.name)))
+        city.restaurants = (city.restaurants || []).concat(P.cityEats.filter(x => x.name && E.readable(E.latin(x.name) || x.name) && isFinite(x.lat) && isFinite(x.lng) && !have.has(E.eatKey(x.name)))
           .map(x => ({ id: "map~" + E.eatKey(x.name).replace(/ /g, "-"), name: E.latin(x.name) || x.name, lat: x.lat, lng: x.lng,  kind: x.amenity || "restaurant", amenity: x.amenity || "restaurant", cuisine: x.cuisine || "", fromMap: true }))); }
       const added = [];
       for (const s of city.farther || []) {
@@ -1696,7 +1699,7 @@ if (typeof module !== "undefined") module.exports = KEngine;
         if (own.length >= 2) s.minutes = Math.min(s.minutes || 60, 60);
         s.foodDrink = (t.foodDrink || []).map(x => ({ name: E.latin(x.name) || x.name, lat: isFinite(x.lat) ? x.lat : null, lng: isFinite(x.lng) ? x.lng : null, kind: x.kind, note: x.content || "", special: E.foodSpecial(x) }));
         // No place to eat in its travel guide: the restaurants and cafés on the map beside it (named as from the map).
-        if (!s.foodDrink.some(x => x.kind === "eat") && (t.mapEats || []).length) s.foodDrink = s.foodDrink.concat(t.mapEats.map(x => ({ name: E.latin(x.name) || x.name, lat: x.lat, lng: x.lng, kind: "eat", note: x.cuisine || "", special: false, fromMap: true })));
+        if (!s.foodDrink.some(x => x.kind === "eat") && (t.mapEats || []).length) s.foodDrink = s.foodDrink.concat(t.mapEats.filter(x => x.name && E.readable(E.latin(x.name) || x.name)).map(x => ({ name: E.latin(x.name) || x.name, lat: x.lat, lng: x.lng, kind: "eat", note: x.cuisine || "", special: false, fromMap: true })));
       }
       if (added.length) city.farther = (city.farther || []).concat(added);
       // Hours per day: a mapped opening time read for that day's date, where the day has no hours for the sight yet.
@@ -2509,7 +2512,7 @@ if (typeof module !== "undefined") module.exports = KEngine;
     // Within one day the list of places to eat and the ledger don't change, so each point is worked out once.
     if (!ctx.eatMemo) {
       ctx.eatMemo = new Map();
-      ctx.eatList = ctx.eats.filter(r => isFinite(r.lat) && isFinite(r.lng) && !r.drop && E.mealPlace(r)).map(r => {
+      ctx.eatList = ctx.eats.filter(r => isFinite(r.lat) && isFinite(r.lng) && !r.drop && E.mealPlace(r) && E.readable(E.latin(r.name) || r.name)).map(r => { // only a name the traveler can read
         const k = E.eatKey(r.name), f = ctx.eatFacts[k] || ctx.eatFacts[r.name && r.name.toLowerCase()] || {};
         return { r, k, f };
       });
@@ -2667,8 +2670,10 @@ if (typeof module !== "undefined") module.exports = KEngine;
     }
     let cur = withLunch(order, win, ctx, quick), pen = cost(cur);
     if (!quick && (cur.r.late || cur.r.over || cur.noLunch === "time")) {
-      for (let pass = 0; pass < 2; pass++) {
-        let better = false;
+      // Each pass tries every single move from the same order and takes the best one (Nov 19: the first move that fixed a
+      // late museum was taken, a sight beside the first stop sent across town and back, when swapping two museums was better).
+      for (let pass = 0; pass < 3; pass++) {
+        let best = null;
         for (let i = 0; i < order.length; i++) for (let j = 0; j < order.length; j++) {
           if (i === j || j === i - 1) continue; // moving to just before the previous is the same as moving that one after
           const o = order.slice(); const [x] = o.splice(i, 1); o.splice(j, 0, x);
@@ -2676,9 +2681,10 @@ if (typeof module !== "undefined") module.exports = KEngine;
           // Lunch only adds time, so an order already later or later at a last entry without lunch can't win.
           const bare = walk(o, win, ctx); if (bare.over > cur.r.over || bare.late > cur.r.late) continue;
           const c = withLunch(o, win, ctx), p = cost(c);
-          if (p < pen - 1e-6) { order = o; cur = c; pen = p; better = true; }
+          if (p < pen - 1e-6 && (!best || p < best.p - 1e-6)) best = { o, c, p };
         }
-        if (!better) break;
+        if (!best) break;
+        order = best.o; cur = best.c; pen = best.p;
       }
     }
     return cur;
@@ -3168,7 +3174,7 @@ if (typeof module !== "undefined") module.exports = KEngine;
       // town) whose hours aren't known for the date is marked, and the plan says to check.
       const noHours = plan.items.filter(x => x.t === "stop" && !x.bonus && (() => { const sx = byIdR.get(String(x.id)), sd = siteDay(x.id); return sx && !sx.far && E.hasEntrance(sx) && !(sd && sd.oh && sd.oh.spans && sd.oh.spans.length); })());
       noHours.forEach(x => { x.hoursUnknown = true; });
-      if (noHours.length) explain.push("Opening hours aren't known for " + E.listWords(noHours.slice(0, 3).map(x => x.name), "and") + (noHours.length > 3 ? " and " + (noHours.length - 3) + " more" : "") + " on this date: check before you go.");
+      if (noHours.length && !explain.some(t => /^Opening hours for .* aren't on the map yet/.test(t))) explain.push("Opening hours aren't known for " + E.listWords(noHours.slice(0, 3).map(x => x.name), "and") + (noHours.length > 3 ? " and " + (noHours.length - 3) + " more" : "") + " on this date: check before you go.");
       plan.dropped = fit.dropped.map(x => x.id); if (Object.keys(ways).length) plan.waysToFit = ways; plan.explain = explain.concat(lunchNote ? [lunchNote] : []);
       return { plan, sightIds, eatIds, kept: fit.kept, autoIds: [...autoIds], explain, spare: win.endBy - fit.r.end, win };
     };
@@ -18317,4 +18323,4 @@ render();
 
 </script>
 <script>if ("serviceWorker" in navigator) addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));</script>
-<script>(function(){var B="d503cdf-1795098203";function ep(v){return +String(v).split("-").pop()||0}function busy(){return document.body&&document.body.classList.contains("touring-on")}function chk(){if(location.protocol!=="https:"||document.visibilityState!=="visible")return;fetch("version.txt",{cache:"no-store"}).then(function(r){return r.ok?r.text():""}).then(function(t){t=t.trim();if(!t||t===B||ep(t)<=ep(B)||busy())return;var k="kairoute.reloadedTo",s="";try{s=sessionStorage.getItem(k)||"";sessionStorage.setItem(k,t)}catch(e){}if(s===t){var u=new URL(location.href);if(u.searchParams.get("v")===t)return;u.searchParams.set("v",t);location.replace(u.href)}else location.reload()}).catch(function(){})}addEventListener("load",chk);addEventListener("pageshow",function(e){if(e.persisted)chk()});addEventListener("focus",chk);document.addEventListener("visibilitychange",chk);setInterval(chk,300000);if(navigator.serviceWorker)navigator.serviceWorker.addEventListener("message",function(e){if(e.data&&e.data.type==="kairoute-sw"){try{e.source.postMessage({type:"kairoute-alive"})}catch(x){}chk()}})})();</script>
+<script>(function(){var B="63b801e-1795099125";function ep(v){return +String(v).split("-").pop()||0}function busy(){return document.body&&document.body.classList.contains("touring-on")}function chk(){if(location.protocol!=="https:"||document.visibilityState!=="visible")return;fetch("version.txt",{cache:"no-store"}).then(function(r){return r.ok?r.text():""}).then(function(t){t=t.trim();if(!t||t===B||ep(t)<=ep(B)||busy())return;var k="kairoute.reloadedTo",s="";try{s=sessionStorage.getItem(k)||"";sessionStorage.setItem(k,t)}catch(e){}if(s===t){var u=new URL(location.href);if(u.searchParams.get("v")===t)return;u.searchParams.set("v",t);location.replace(u.href)}else location.reload()}).catch(function(){})}addEventListener("load",chk);addEventListener("pageshow",function(e){if(e.persisted)chk()});addEventListener("focus",chk);document.addEventListener("visibilitychange",chk);setInterval(chk,300000);if(navigator.serviceWorker)navigator.serviceWorker.addEventListener("message",function(e){if(e.data&&e.data.type==="kairoute-sw"){try{e.source.postMessage({type:"kairoute-alive"})}catch(x){}chk()}})})();</script>
