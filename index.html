@@ -1802,25 +1802,33 @@ if (typeof module !== "undefined") module.exports = KEngine;
   // lines: public transport lines from the places files (part 1b).
   // answers(a, b): the app's own timetable answers for a ride ([{ id, min, label, mode, steps, access, egress, ... }]),
   // or null. piers: every pier a boat may use.
+  // "Close enough" to a ride already known, ONE rule for every answer borrowed from a ride next door (Nov 19 fold: the
+  // traveler's ride choice, a road time from the map and a timetable answer each had their own distance, 1.5 km, 2 km
+  // and 600 m): each end within a tenth of the ride of the known ride's ends (600 m at least, 5 km at most); the nearest
+  // one wins. A borrowed TIME adds the time to reach the known ride's ends, the same way the ride goes (by road for a
+  // road time; on foot, or by taxi beyond a walk, for public transport), so it is never shorter than going to those ends
+  // and riding from there: safe by construction, however far within the limit the ends are.
+  E.nearTol = d => Math.max(0.6, Math.min(5, d / 10));
+  E.gapMin = (km, byRoad) => !(km >= 0.02) ? 0 : byRoad ? Math.round(km * 1.3 / 25 * 60) : km <= 0.8 ? Math.ceil(km * 1.3 / 4 * 60) : Math.round(5 + km * 1.3 / 25 * 60);
+  // list: the known rides; endsOf(x) -> [A, B]. Returns { x, A, B, off } for the nearest known ride the same way round,
+  // or null. off: the farther end's distance.
+  E.nearRide = (a, b, list, endsOf) => { if (!list || !list.length || !E.hasPos(a) || !E.hasPos(b)) return null; const tol = E.nearTol(E.hav(a, b)); let best = null;
+    for (const x of list) { const e = endsOf(x); if (!e || !e[0] || !e[1]) continue; const off = Math.max(E.hav(e[0], a), E.hav(e[1], b)); if (off <= tol && (!best || off < best.off)) best = { x, A: e[0], B: e[1], off }; }
+    return best; };
+  E.nearGap = (a, b, n, byRoad) => n ? E.gapMin(E.hav(a, n.A), byRoad) + E.gapMin(E.hav(b, n.B), byRoad) : 0;
   E.makeTravel = (prefs, legModes, legs, lines, answers, piers) => {
     const walk = (prefs && prefs.walk) || "medium", lim = WALK_LIMIT[walk] || WALK_LIMIT.medium, speed = walk === "low" ? 3.6 : 4.5, modes = legModes || {}, memo = new Map(), memoEnd = new Map();
     const walkMinOf = km => Math.max(1, Math.round(km * 1.3 / speed * 60));
     // The traveler's ride choice belongs to the two places, whichever way the day goes between them (Nov 18: the train
-    // picked between two trips out was lost when the day ran them the other way round). A choice also holds for any two points
-    // each within a short walk (1.5 km, or a fifth of the ride) of its two places, on a ride over 5 km; one made the
-    // same way round wins, then the closest.
+    // picked between two trips out was lost when the day ran them the other way round). A choice also holds for a ride close
+    // enough to it (E.nearRide); one made the same way round wins, then the closest.
     const chosenPairs = Object.keys(modes).map(k => { const v = k.split(",").map(Number); return v.length === 4 && v.every(isFinite) ? { a: { lat: v[0], lng: v[1] }, b: { lat: v[2], lng: v[3] }, m: modes[k] } : null; }).filter(Boolean);
     const modeOf = (a, b) => { const k = modes[E.pairKey(a, b)]; if (k != null) return k; const r = modes[E.pairKey(b, a)]; if (r != null) return r;
-      if (!chosenPairs.length || !a || !b || E.hav(a, b) < 5) return undefined;
-      const tol = Math.max(1.5, E.hav(a, b) / 5), pickOf = dist => { let best = null, bestD = Infinity; for (const p of chosenPairs) { const d = dist(p); if (d <= tol && d < bestD) { best = p; bestD = d; } } return best; };
-      const best = pickOf(p => Math.max(E.hav(p.a, a), E.hav(p.b, b))) || pickOf(p => Math.max(E.hav(p.a, b), E.hav(p.b, a)));
-      return best ? { near: best.m } : undefined; };
-    // A road time from the map (the places files) holds for any two points each within a short ride of its two ends
-    // (2 km, or a fifteenth of the ride), the ends' gaps added at town speed; the closest pair wins.
+      const best = E.nearRide(a, b, chosenPairs, p => [p.a, p.b]) || E.nearRide(a, b, chosenPairs, p => [p.b, p.a]);
+      return best ? { near: best.x.m } : undefined; };
+    // A road time from the map (the places files) holds for a ride close enough to it, the gaps added by road (E.nearRide).
     const roadLegs = legs ? Object.values(legs).filter(l => l && l.road && l.a && l.b) : [];
-    const roadNear = (a, b, d) => { if (!roadLegs.length || d < 10) return null; const tol = Math.max(2, d / 15); let best = null, bd = Infinity;
-      for (const l of roadLegs) { const g = Math.max(E.hav(l.a, a), E.hav(l.b, b)); if (g <= tol && g < bd) { bd = g; best = l; } }
-      return best && Object.assign({}, best, { min: best.min + Math.round((E.hav(best.a, a) + E.hav(best.b, b)) * 1.3 / 25 * 60) }); };
+    const roadNear = (a, b) => { const n = E.nearRide(a, b, roadLegs, l => [l.a, l.b]); return n && Object.assign({}, n.x, { min: n.x.min + E.nearGap(a, b, n, true) }); };
     function estimate(a, b) {
       // A place with no position on the map is never a ride of no time (a 0-minute walk made a day look as if it fit): the
       // ride is a taxi of E.UNKNOWN_RIDE minutes, said to be a guess (Nov 19 review).
@@ -1881,7 +1889,7 @@ if (typeof module !== "undefined") module.exports = KEngine;
       // Jul 2: the train he picked for the ride home was carried to the ride out, which has no known train, and the app
       // said "no train").
       const got = modeOf(a, b), nearOnly = got && typeof got === "object", wantRaw = nearOnly ? got.near : got;
-      const pin = (legs && legs[E.pairKey(a, b)]) || roadNear(a, b, d), pinned = pin && isFinite(pin.min) ? pin : null;
+      const pin = (legs && legs[E.pairKey(a, b)]) || roadNear(a, b), pinned = pin && isFinite(pin.min) ? pin : null;
       const isle = p => E.byBoat(p.travelNote) || E.waterOnly(p), note = noteFor(a, b);
       // The traveler's choice, as a kind (a row of a timetable answer picked earlier counts as its kind).
       const want = wantRaw == null ? null : OLD_CHOICE[wantRaw] || wantRaw;
@@ -1891,7 +1899,11 @@ if (typeof module !== "undefined") module.exports = KEngine;
         // timetable's when the app has it, else the crossing the guide names (or one worked out from the distance),
         // plus the time at the pier for the next sailing.
         const holder = isle(a) ? a : b, ferryAns = answered(a, b, d, wantRaw).find(o => o.kind === "ferry");
-        if (ferryAns) opts.push(Object.assign(ferryAns, { km: d }));
+        // A timetable's boat is still a boat from pier to pier: the way to (or from) the pier is its own ride, and the
+        // boat keeps the rest of the timetable's time, never less than the time at the pier (Nov 19: a sailing borrowed
+        // from the ride next door hid the walk to the ferry).
+        if (ferryAns) { const pl = pierLeg(a, b, holder);
+          opts.push(Object.assign(ferryAns, { km: d }, pl ? { parts: pl.parts, min: Math.max(ferryAns.min, pl.min + E.PIER_MIN) } : {})); }
         else {
           const hn = holder.travelNote || "", cross = saidMin(hn) || Math.round(d / 25 * 60) + 10, pl = pierLeg(a, b, holder);
           const word = /high.?speed|fast ferry|hydrofoil|catamaran/i.test(hn) ? "Fast ferry" : /ferry/i.test(hn) ? "Ferry" : "Boat";
@@ -1950,20 +1962,18 @@ if (typeof module !== "undefined") module.exports = KEngine;
       return leg;
     }
     const min = (a, b) => (a && b ? estimate(a, b).min : 0);
-    // The order of the day is worked out with the usual ride times, never with the way the traveler picked: a slower
-    // train they choose changes the clock, not which place comes first (Nov 18: picking the train made the day run
-    // another way round, the ride was no longer made, and the choice was refused).
-    let plain = null;
-    const orderMin = (a, b) => { if (!chosenPairs.length && !Object.keys(modes).length) return min(a, b); if (!plain) plain = E.makeTravel(prefs, null, legs, lines, answers, piers); return plain.min(a, b); };
     // The same calculator without the traveler's ride choices: the day's order is decided with it, so a ride choice changes
-    // the clock, never which place comes first (Nov 19, Richard's Jul 2: picking the train home sent the day back and
-    // forth across a town, and the ride he had picked was no longer the ride home).
-    const plainTr = () => { if (!chosenPairs.length && !Object.keys(modes).length) return null; if (!plain) plain = E.makeTravel(prefs, null, legs, lines, answers, piers); return plain; };
+    // the clock, never which place comes first (Nov 18: picking the train made the day run another way round and the
+    // choice was refused; Nov 19, Richard's Jul 2: picking the train home sent the day back and forth across a town).
+    let plain = null;
+    const plainTr = () => { if (!Object.keys(modes).length) return null; if (!plain) plain = E.makeTravel(prefs, null, legs, lines, answers, piers); return plain; };
+    const orderMin = (a, b) => { const p = plainTr(); return p ? p.min(a, b) : min(a, b); };
     return { estimate, min, orderMin, plainTr, road: d => Object.assign({ mode: "ride", kind: "taxi", how: "Taxi or car" }, road(d)), saidMin, chosen: (a, b) => modeOf(a, b) != null };
   };
-  // The ride as the plan lists it: every fact the screens need, from the one ride record.
+  // The ride as the plan lists it: every fact the screens need, from the one ride record. A walk is just "Walk", except
+  // the walk to or from a ferry, which says so ("Walk to the ferry at ..."): the traveler sees where the boat leaves.
   E.rideItem = (leg, extra) => Object.assign({ t: "ride", mode: leg.mode, kind: leg.kind || (leg.mode === "walk" ? "walk" : "taxi"), min: leg.min, km: Math.round((leg.km || 0) * 100) / 100 },
-    leg.how && leg.mode !== "walk" ? { how: leg.how } : {}, leg.options ? { options: leg.options } : {}, leg.transitMode ? { transitMode: leg.transitMode } : {},
+    leg.how && (leg.mode !== "walk" || leg.pierName) ? { how: leg.how } : {}, leg.options ? { options: leg.options } : {}, leg.transitMode ? { transitMode: leg.transitMode } : {},
     leg.choice ? { choice: leg.choice } : {}, leg.steps && leg.steps.length ? { steps: leg.steps } : {}, leg.ans ? { ans: leg.ans } : {}, leg.note ? { note: leg.note } : {},
     leg.lost ? { lost: leg.lost } : {}, leg.source ? { source: leg.source } : {}, leg.guess ? { guess: true } : {}, leg.slack ? { slack: leg.slack } : {}, leg.pierName ? { pierName: leg.pierName } : {}, extra || {});
 })(KEngine);
@@ -5373,30 +5383,44 @@ const planDow = () => { const k = typeof planDate !== "undefined" ? planDate : n
 const dayKind = dow => dow === 0 ? "su" : dow === 6 ? "sa" : "wk";
 // Seasonal lines (a summer ferry) are offered only in the months they run, against the plan's own date.
 const runsThen = o => { if (!o || !Array.isArray(o.months) || !o.months.length) return true; const t = typeof planDate !== "undefined" && planDate ? Date.parse(planDate + "T12:00:00Z") : NaN; return !isFinite(t) || o.months.includes(new Date(t).getUTCMonth() + 1); };
-// A saved timetable for nearly the same trip (both ends within about 600 m), so a day re-planned from where the
-// traveler stands (GPS) still knows the trains, with no signal.
+// A saved timetable for a trip close enough to this one, by the engine's one "close enough" rule (KEngine.nearRide:
+// each end within a tenth of the ride, 600 m at least), so a day re-planned from where the traveler stands (GPS) still
+// knows the trains, with no signal. The borrowed answer's times get the time to reach its ends added (transitFor).
 let nearList = null;
 // Speed: a plan asks this for every pair of places with no answer of its own, thousands of times; scanning every kept
 // answer each time took ~19 s of a phone's time over one visit with a full trip's rides kept. The kept answers are
-// filed by the start's latitude (a 0.006-degree band, the same 600 m the match allows), and each pair's result is
-// remembered until the kept answers change.
-const NEAR_BAND = 0.006, nearHits = new Map();
+// filed by the start's latitude (0.006-degree bands, about 600 m), and each pair's result is remembered until the kept
+// answers change.
+const NEAR_BAND = 0.006, nearHits = new Map(), nearFrom = new WeakMap();
+const nearTolKm = d => typeof KEngine !== "undefined" && KEngine.nearTol ? KEngine.nearTol(d) : 0.6;
 function transitNear(a, b, kind) {
   // The kept answers with lines, read once per change (not split apart on every lookup).
   if (!nearList || nearList.g !== nearGen) { const l = new Map(); for (const k in transitMem) { const [ks, kd] = k.split("|"), m = transitMem[k]; if (!(m.opts || []).length) continue; const n = ks.split(",").map(Number); if (n.length !== 4) continue; const x = { kd, m, A: { lat: n[0], lng: n[1] }, B: { lat: n[2], lng: n[3] } }, band = Math.floor(n[0] / NEAR_BAND); if (!l.has(band)) l.set(band, []); l.get(band).push(x); } nearList = { g: nearGen, l }; nearHits.clear(); }
   const al = +a.lat, bl = +b.lat, hk = al + "," + a.lng + "," + bl + "," + b.lng + "|" + kind;
   if (nearHits.has(hk)) return nearHits.get(hk);
-  let best = null, bd = 0.6; const band = Math.floor(al / NEAR_BAND);
-  for (let j = band - 1; j <= band + 1; j++) for (const x of nearList.l.get(j) || []) { if (x.kd && x.kd !== kind) continue; if (Math.abs(x.A.lat - al) > 0.006 || Math.abs(x.B.lat - bl) > 0.006) continue; const e = Math.max(hav(a, x.A), hav(b, x.B)); if (e < bd) { bd = e; best = x.m; } }
+  const tol = nearTolKm(hav(a, b)), dLat = tol / 111, band = Math.floor(al / NEAR_BAND), span = Math.ceil(dLat / NEAR_BAND), cand = [];
+  for (let j = band - span; j <= band + span; j++) for (const x of nearList.l.get(j) || []) { if (x.kd && x.kd !== kind) continue; if (Math.abs(x.A.lat - al) > dLat || Math.abs(x.B.lat - bl) > dLat) continue; cand.push(x); }
+  let n = null;
+  if (typeof KEngine !== "undefined" && KEngine.nearRide) n = KEngine.nearRide(a, b, cand, x => [x.A, x.B]);
+  else for (const x of cand) { const off = Math.max(hav(a, x.A), hav(b, x.B)); if (off <= tol && (!n || off < n.off)) n = { x, A: x.A, B: x.B, off }; }
+  const best = n ? n.x.m : null; if (n) nearFrom.set(n.x.m, { A: n.A, B: n.B });
   if (nearHits.size > 20000) nearHits.clear();
   nearHits.set(hk, best); return best;
 }
+// The minutes to reach a borrowed answer's own ends from this ride's ends (on foot, or by taxi beyond a walk).
+const nearGapMin = (a, b, m) => { const f = nearFrom.get(m); if (!f) return 0; return typeof KEngine !== "undefined" && KEngine.gapMin ? KEngine.gapMin(hav(a, f.A)) + KEngine.gapMin(hav(b, f.B)) : Math.ceil((hav(a, f.A) + hav(b, f.B)) * 1.3 / 4 * 60); };
 // Speed: a nearby answer for an empty one is looked for once per change to the kept answers, not on every one of the
 // hundreds of thousands of ride lookups a plan makes (looking every time froze Change stops, Nov 14).
 let nearGen = 0;
 function nearOnce(exact, a, b, kind) { const m = nearMemo.get(exact); if (m && m.g === nearGen) return m.v; const v = transitNear(a, b, kind); nearMemo.set(exact, { g: nearGen, v }); return v; }
 const nearMemo = new WeakMap();
 let transitPeek = false;
+// A borrowed answer (a ride close enough, not this very one) takes the time to reach its own ends, said as its first
+// and last step: never a shorter time than going to those ends and riding from there.
+function borrowGap(a, b, hit, exact, opts) { if (hit === exact) return opts; const f = nearFrom.get(hit), g = f ? nearGapMin(a, b, hit) : 0; if (!g) return opts;
+  return opts.map(o => Object.assign({}, o, { min: o.min + g, nearGap: g, steps: ["Allow " + g + " min to reach this route's start and finish from your stops"].concat(o.steps || []) })); }
+// A nearby ride's kept answer, its times with the gap added (kept with a partial new answer for this ride).
+function nearWithGap(a, b, kind) { const m = transitNear(a, b, kind); return m ? { opts: borrowGap(a, b, m, null, m.opts || []) } : null; }
 function transitFor(a, b) {
   if (!a || !b || !isFinite(a.lat) || !isFinite(b.lat) || hav(a, b) < 1.5) return null; // city rides too: a bus or metro across town is a real choice (Nov 16)
   const dow = planDow(), k = pairKey(a, b) + "|" + dayKind(dow), exact = transitMem[k] || transitMem[pairKey(a, b)], hit = exact && exact.opts && exact.opts.length ? exact : (exact ? nearOnce(exact, a, b, dayKind(dow)) : transitNear(a, b, dayKind(dow))) || exact; // an empty exact answer never hides a nearby one's lines
@@ -5404,11 +5428,11 @@ function transitFor(a, b) {
   // Used meanwhile, and asked again when online: an answer from an older version (at once), one given while a source
   // was busy or an empty one (after 10 minutes), or a nearby trip's answer (the exact ride is asked). With no internet
   // whatever is kept is simply used.
-  if (hit && !transitDue(exact, hit)) return hit.opts.filter(runsThen).map(tidyRide);
+  if (hit && !transitDue(exact, hit)) return borrowGap(a, b, hit, exact, hit.opts.filter(runsThen).map(tidyRide));
   // A look without asking: a planner weighing many possible rides reads what is known and asks only for the rides it keeps.
-  if (transitPeek) return hit ? hit.opts.filter(runsThen).map(tidyRide) : null;
+  if (transitPeek) return hit ? borrowGap(a, b, hit, exact, hit.opts.filter(runsThen).map(tidyRide)) : null;
   if (typeof freeAI !== "undefined" && freeAI && !transitQ.has(k) && !(transitFail.get(k) > Date.now() - 120000)) { transitQ.set(k, { a: [+a.lat, +a.lng], b: [+b.lat, +b.lng], dow, date: typeof planDate !== "undefined" && planDate ? planDate : undefined, pri: typeof trip !== "undefined" && trip.days && trip.days[trip.active] && typeof planDate !== "undefined" && trip.days[trip.active].date === planDate }); clearTimeout(transitTimer); transitTimer = setTimeout(askTransit, 300); }
-  return hit ? hit.opts.filter(runsThen).map(tidyRide) : null;
+  return hit ? borrowGap(a, b, hit, exact, hit.opts.filter(runsThen).map(tidyRide)) : null;
 }
 function transitDue(exact, hit) {
   if (typeof navigator !== "undefined" && navigator.onLine === false) return false;
@@ -5426,7 +5450,7 @@ async function askTransit() {
   const one = async part => {
     let got = 0;
     try { const r = await fetch(freeAI.url + "/transit", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ pairs: part.map(x => ({ a: x[1].a, b: x[1].b, dow: x[1].dow, date: x[1].date })) }) }); if (!r.ok) throw new Error("transit " + r.status);
-      const j = await r.json(); part.forEach(([k, q], i) => { const res = (j.results || [])[i]; if (res && Array.isArray(res.opts)) { transitMem[k] = transitMerge(res, transitMem[k] || transitNear({ lat: q.a[0], lng: q.a[1] }, { lat: q.b[0], lng: q.b[1] }, k.split("|")[1])); nearGen++; got++; } else transitFail.set(k, Date.now()); });
+      const j = await r.json(); part.forEach(([k, q], i) => { const res = (j.results || [])[i]; if (res && Array.isArray(res.opts)) { transitMem[k] = transitMerge(res, transitMem[k] || nearWithGap({ lat: q.a[0], lng: q.a[1] }, { lat: q.b[0], lng: q.b[1] }, k.split("|")[1])); nearGen++; got++; } else transitFail.set(k, Date.now()); });
     } catch (e) { part.forEach(([k]) => transitFail.set(k, Date.now())); }
     // A ride the helper couldn't answer is asked again by itself once the 2-minute pause is over (the page is redrawn,
     // which asks again), instead of showing the road estimate until the traveler happens to touch something.
@@ -18407,4 +18431,4 @@ render();
 
 </script>
 <script>if ("serviceWorker" in navigator) addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));</script>
-<script>(function(){var B="07319af-1795116684";function ep(v){return +String(v).split("-").pop()||0}function busy(){return document.body&&document.body.classList.contains("touring-on")}function chk(){if(location.protocol!=="https:"||document.visibilityState!=="visible")return;fetch("version.txt",{cache:"no-store"}).then(function(r){return r.ok?r.text():""}).then(function(t){t=t.trim();if(!t||t===B||ep(t)<=ep(B)||busy())return;var k="kairoute.reloadedTo",s="";try{s=sessionStorage.getItem(k)||"";sessionStorage.setItem(k,t)}catch(e){}if(s===t){var u=new URL(location.href);if(u.searchParams.get("v")===t)return;u.searchParams.set("v",t);location.replace(u.href)}else location.reload()}).catch(function(){})}addEventListener("load",chk);addEventListener("pageshow",function(e){if(e.persisted)chk()});addEventListener("focus",chk);document.addEventListener("visibilitychange",chk);setInterval(chk,300000);if(navigator.serviceWorker)navigator.serviceWorker.addEventListener("message",function(e){if(e.data&&e.data.type==="kairoute-sw"){try{e.source.postMessage({type:"kairoute-alive"})}catch(x){}chk()}})})();</script>
+<script>(function(){var B="429def1-1795123037";function ep(v){return +String(v).split("-").pop()||0}function busy(){return document.body&&document.body.classList.contains("touring-on")}function chk(){if(location.protocol!=="https:"||document.visibilityState!=="visible")return;fetch("version.txt",{cache:"no-store"}).then(function(r){return r.ok?r.text():""}).then(function(t){t=t.trim();if(!t||t===B||ep(t)<=ep(B)||busy())return;var k="kairoute.reloadedTo",s="";try{s=sessionStorage.getItem(k)||"";sessionStorage.setItem(k,t)}catch(e){}if(s===t){var u=new URL(location.href);if(u.searchParams.get("v")===t)return;u.searchParams.set("v",t);location.replace(u.href)}else location.reload()}).catch(function(){})}addEventListener("load",chk);addEventListener("pageshow",function(e){if(e.persisted)chk()});addEventListener("focus",chk);document.addEventListener("visibilitychange",chk);setInterval(chk,300000);if(navigator.serviceWorker)navigator.serviceWorker.addEventListener("message",function(e){if(e.data&&e.data.type==="kairoute-sw"){try{e.source.postMessage({type:"kairoute-alive"})}catch(x){}chk()}})})();</script>
