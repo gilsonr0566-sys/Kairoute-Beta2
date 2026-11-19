@@ -2522,6 +2522,10 @@ if (typeof module !== "undefined") module.exports = KEngine;
   // least a short lunch (Nov 19, Richard: a day landing at the airport and out from 13:40 still gets lunch).
   const lunchWanted = E.lunchWanted = win => { const from = win.sightFrom || win.start, to = isFinite(win.sightTo) ? win.sightTo : win.endBy, L = E.MEALS[0];
     return to - from >= 120 && Math.min(to, L.to) - Math.max(from, L.from) >= E.TO_GO + 10; };
+  // ONE hours rule for places to eat and sights alike (Nov 19 fold: lunch had its own "shut" flags and its own lunch-hour
+  // spans beside the sights' hours). A place's facts for the date are { closed, oh } read the same way as a sight's; it
+  // is shut for a meal when E.closedForDay says so over the meal's hours, and its timing uses E.hoursFit (part 2).
+  E.eatShut = (f, label) => { const m = E.MEALS.find(x => x.label === label) || E.MEALS[0]; return E.closedForDay(f, { start: m.from, endBy: m.to }, m.quick); };
   // The nearest few real places to eat around a point that are open for this meal today and not used on another day.
   function eatsNear(p, ctx, meal, n) {
     // Within one day the list of places to eat and the ledger don't change, so each point is worked out once.
@@ -2535,7 +2539,7 @@ if (typeof module !== "undefined") module.exports = KEngine;
     const key = meal + n + "@" + p.lat + "," + p.lng, got = ctx.eatMemo.get(key); if (got) return got;
     const out = [];
     for (const x of ctx.eatList) {
-      if (meal === "Lunch" ? x.f.lunchShut : x.f.dinnerShut || x.r.townLunch || x.r.inTown) continue;
+      if (E.eatShut(x.f, meal) || (meal !== "Lunch" && (x.r.townLunch || x.r.inTown))) continue;
       if (!ctx.ledger.eatFree(x.k, ctx.dayIdx)) continue;
       out.push({ r: x.r, k: x.k, d: E.hav(p, x.r) + (x.r.fromMap ? 0.4 : 0) }); // a guide place to eat first, a map one when it is nearer the way
     }
@@ -2555,7 +2559,7 @@ if (typeof module !== "undefined") module.exports = KEngine;
       // A place the traveler chose that doesn't serve this meal that day (its listed hours): not planned there, and the plan
       // says why (Nov 19 review: a chosen restaurant skipped every check).
       const f = (ctx.eatFacts || {})[k] || {};
-      if (label === "Lunch" ? f.lunchShut : f.dinnerShut) return { skip: !!p.skip, meal, pick: null, pickShut: p.pick.name || "The place you chose" };
+      if (E.eatShut(f, label)) return { skip: !!p.skip, meal, pick: null, pickShut: p.pick.name || "The place you chose" };
       pick = { r: guide || p.pick, k, d: 0 };
     }
     return { skip: !!p.skip, meal, pick };
@@ -2586,7 +2590,7 @@ if (typeof module !== "undefined") module.exports = KEngine;
     if (my.skip || !lunchWanted(win) || (!ctx.eats.length && !my.pick)) return { seq: order, r: plain };
     const pts = [win.head[win.head.length - 1]].concat(order), lens = [L.len, L.quick, E.TO_GO];
     const mealAt = (e, len, extra) => Object.assign({ id: "eat:" + e.k, eatKey: e.k, name: e.r.name, lat: e.r.lat, lng: e.r.lng, mealOf: L, len, quick: len < L.len, toGo: len === E.TO_GO, chosen: !!my.pick, fromMap: !!e.r.fromMap, travelNote: e.r.travelNote || "",
-      open: len === E.TO_GO ? null : ((ctx.eatFacts || {})[e.k] || {}).lunchOpen || null }, extra || {});
+      oh: len === E.TO_GO ? null : ((ctx.eatFacts || {})[e.k] || {}).oh || null }, extra || {});
     const ok = c => c.r.lateMeal < 90 && !c.r.items.some(x => x.shut) && c.r.late <= plain.late && c.r.over <= plain.over
       && (c.k === order.length || c.r.waits - plain.waits <= 45)
       && !(win.hard && !c.r.over && c.r.end > plain.end && win.endBy - c.r.end < E.FILL_MARGIN);
@@ -2897,10 +2901,11 @@ if (typeof module !== "undefined") module.exports = KEngine;
       // Early at a place to eat: seated with a drink and the menu, the first quarter hour is no idle wait (Nov 19: lunch
       // 1.7 km out of the way, to save five minutes before the kitchen opened). Longer is still a wait.
       if (type === "meal") { const m = p.mealOf; if (clock < m.from) { waits += Math.max(0, m.from - clock - E.MEAL_SEATED); clock = m.from; }
-        // The place's own lunch hours that day, when listed: wait for it to open, and a meal running past its closing counts
-        // as late as the minutes it runs over (Nov 19 review: lunch was planned when the restaurant was shut).
-        if (p.open && p.open.length) { const len = p.len || m.len, sp = p.open.find(([a, b]) => clock < b) || null;
-          if (!sp) { it.shut = true; it.lateMeal = (it.lateMeal || 0) + len; } else { if (clock < sp[0]) { waits += Math.max(0, sp[0] - clock - E.MEAL_SEATED); clock = sp[0]; } if (clock + len > sp[1]) { it.shut = true; it.lateMeal = (it.lateMeal || 0) + clock + len - sp[1]; } } } it.meal = m.label; it.min = p.len || m.len; if (m.booked) it.booked = true; if (m.pinned) it.pinned = true; if (p.chosen) it.chosen = true; if (p.toGo) it.toGo = true; if (p.fromMap) it.fromMap = true; if (clock > m.to) it.lateMeal = (it.lateMeal || 0) + clock - m.to; }
+        // The place's own hours that day, read and checked exactly as a sight's (E.hoursFit): wait for it to open (the first
+        // quarter hour seated is no idle wait), and a meal that can't finish before closing is late by the minutes it runs
+        // over (Nov 19 review: lunch was planned when the restaurant was shut).
+        if (p.oh) { const len = p.len || m.len, f = E.hoursFit(p.oh, clock, len);
+          if (f.wait) { waits += Math.max(0, f.wait - E.MEAL_SEATED); clock += f.wait; } if (f.late > 0) { it.shut = true; it.lateMeal = (it.lateMeal || 0) + f.late; } } it.meal = m.label; it.min = p.len || m.len; if (m.booked) it.booked = true; if (m.pinned) it.pinned = true; if (p.chosen) it.chosen = true; if (p.toGo) it.toGo = true; if (p.fromMap) it.fromMap = true; if (clock > m.to) it.lateMeal = (it.lateMeal || 0) + clock - m.to; }
       it.at = clock; items.push(it); clock += it.min; prev = p;
     };
     const keep = () => states.push({ clock, prev, late, waits, rideMin, n: items.length });
@@ -18238,12 +18243,10 @@ function engineBucket(withOld) {
       if (!on) { on = { sites: {}, eats: {} };
         allSites(city).forEach(s => { const oh = siteWindow(s, d.date), cw = crowdWindows(Object.assign({ _city: ck }, s), d.date);
           on.sites[s.id] = { closed: siteClosed(s, d.date), oh: oh ? { spans: oh.spans, last: oh.last != null ? oh.last : null } : null, busy: cw ? cw.busy : null }; });
-        // When each place serves lunch that day (Nov 19 review: lunch was planned at a time the restaurant was shut): the
-        // spans its listed hours say it is open between 10:00 and 16:00, in 15-minute steps. None when no hours are listed.
-        const lunchOpen = r => { const h = hoursOf(r); if (!h || r.booked) return null; const sp = []; let st = null;
-          for (let m = 600; m <= 960; m += 15) { const open = ohState(h, d.date, m) === "open"; if (open && st == null) st = m; if (!open && st != null) { sp.push([st, m]); st = null; } }
-          if (st != null) sp.push([st, 960]); return sp; };
-        (city.restaurants || []).forEach(r => { on.eats[keyOf(r.name)] = { lunchShut: mealShut(r, "Lunch", d.date), dinnerShut: mealShut(r, "Dinner", d.date), lunchOpen: lunchOpen(r) }; });
+        // Each place to eat, the same facts as a sight for that date (Nov 19 fold: one hours rule): closed that day, and its
+        // open spans when its hours are known. A table the traveler booked has no hours limit.
+        (city.restaurants || []).forEach(r0 => { const r = Object.assign({}, r0, { hours: hoursOf(r0) }), w = r.booked ? null : siteWindow(r, d.date);
+          on.eats[keyOf(r.name)] = { closed: !r.booked && siteClosed(r, d.date), oh: w ? { spans: w.spans, last: null } : null }; });
         cm.dates.set(d.date, on); }
       facts.sites = on.sites; facts.eats = on.eats;
     }
@@ -18431,4 +18434,4 @@ render();
 
 </script>
 <script>if ("serviceWorker" in navigator) addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));</script>
-<script>(function(){var B="429def1-1795123037";function ep(v){return +String(v).split("-").pop()||0}function busy(){return document.body&&document.body.classList.contains("touring-on")}function chk(){if(location.protocol!=="https:"||document.visibilityState!=="visible")return;fetch("version.txt",{cache:"no-store"}).then(function(r){return r.ok?r.text():""}).then(function(t){t=t.trim();if(!t||t===B||ep(t)<=ep(B)||busy())return;var k="kairoute.reloadedTo",s="";try{s=sessionStorage.getItem(k)||"";sessionStorage.setItem(k,t)}catch(e){}if(s===t){var u=new URL(location.href);if(u.searchParams.get("v")===t)return;u.searchParams.set("v",t);location.replace(u.href)}else location.reload()}).catch(function(){})}addEventListener("load",chk);addEventListener("pageshow",function(e){if(e.persisted)chk()});addEventListener("focus",chk);document.addEventListener("visibilitychange",chk);setInterval(chk,300000);if(navigator.serviceWorker)navigator.serviceWorker.addEventListener("message",function(e){if(e.data&&e.data.type==="kairoute-sw"){try{e.source.postMessage({type:"kairoute-alive"})}catch(x){}chk()}})})();</script>
+<script>(function(){var B="1751bc8-1795124370";function ep(v){return +String(v).split("-").pop()||0}function busy(){return document.body&&document.body.classList.contains("touring-on")}function chk(){if(location.protocol!=="https:"||document.visibilityState!=="visible")return;fetch("version.txt",{cache:"no-store"}).then(function(r){return r.ok?r.text():""}).then(function(t){t=t.trim();if(!t||t===B||ep(t)<=ep(B)||busy())return;var k="kairoute.reloadedTo",s="";try{s=sessionStorage.getItem(k)||"";sessionStorage.setItem(k,t)}catch(e){}if(s===t){var u=new URL(location.href);if(u.searchParams.get("v")===t)return;u.searchParams.set("v",t);location.replace(u.href)}else location.reload()}).catch(function(){})}addEventListener("load",chk);addEventListener("pageshow",function(e){if(e.persisted)chk()});addEventListener("focus",chk);document.addEventListener("visibilitychange",chk);setInterval(chk,300000);if(navigator.serviceWorker)navigator.serviceWorker.addEventListener("message",function(e){if(e.data&&e.data.type==="kairoute-sw"){try{e.source.postMessage({type:"kairoute-alive"})}catch(x){}chk()}})})();</script>
