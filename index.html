@@ -1610,6 +1610,9 @@ var KEngine = typeof KEngine !== "undefined" ? KEngine : {};
     return out;
   };
   E.PAD_MAX = 45; // longest ride each way for a trip out added to fill a day in town // lunch on the go: bought and eaten on the way, minutes
+  // A meal starts at most this long after its last orders (Nov 20 phone check: lunch at 3:47 pm after a day trip counted as
+  // lunch). The leak report's "odd hour" is the same line.
+  E.MEAL_LATE = 60;
   E.MEALS = Object.freeze([
     Object.freeze({ label: "Lunch", from: 11 * 60 + 45, to: 14 * 60 + 30, len: 60, quick: 35 }),
     Object.freeze({ label: "Dinner", from: 18 * 60 + 30, to: 21 * 60, len: 75, quick: 45 })
@@ -1682,7 +1685,9 @@ if (typeof module !== "undefined") module.exports = KEngine;
       if ((P.cityEats || []).length) { const have = new Set((city.restaurants || []).map(r => E.eatKey(r.name)));
         city.restaurants = (city.restaurants || []).concat(P.cityEats.filter(x => x.name && E.readable(E.latin(x.name) || x.name) && isFinite(x.lat) && isFinite(x.lng) && !have.has(E.eatKey(x.name)))
           .map(x => ({ id: "map~" + E.eatKey(x.name).replace(/ /g, "-"), name: E.latin(x.name) || x.name, lat: x.lat, lng: x.lng,  kind: x.amenity || "restaurant", amenity: x.amenity || "restaurant", cuisine: x.cuisine || "", fromMap: true }))); }
-      const added = [];
+      // One sight, one id: a town's sights the app already lists (it shows the places files' sights in its own list, and
+      // sends them back) are never added again (Nov 19 sweep: Toledo's sights twice over made a day of 23 stops, an 8-second tick).
+      const added = [], haveFar = new Set((city.farther || []).map(x => String(x.id)));
       for (const s of city.farther || []) {
         const t = P.towns && P.towns[s.id]; if (!t) continue;
         if (t.editions) s.editions = t.editions;
@@ -1693,8 +1698,8 @@ if (typeof module !== "undefined") module.exports = KEngine;
         const own = (t.sights || []).filter(x => (x.kind || "see") === "see" && isFinite(x.lat) && isFinite(x.lng) && E.hav(s, x) <= TOWN_KM);
         s.townSights = own.map(x => ({ name: x.name, lat: x.lat, lng: x.lng }));
         // A museum gets an hour, anything else half an hour; getting there takes what the town's own ride note says.
-        own.forEach((x, n) => added.push({ id: s.id + "~" + (x.wikidata || n), name: x.name, lat: x.lat, lng: x.lng, minutes: /museum|museo|musée|museu|muzeum|galler/i.test(x.name) ? 60 : 30,
-          far: true, town: s.id, townName: s.name, travelNote: s.travelNote || "", editions: x.editions || 0, unesco: !!x.unesco, tags: ["in-town"], category: "Sight" }));
+        own.forEach((x, n) => { const id = s.id + "~" + (x.wikidata || n); if (haveFar.has(id)) return; haveFar.add(id); added.push({ id, name: x.name, lat: x.lat, lng: x.lng, minutes: /museum|museo|musée|museu|muzeum|galler/i.test(x.name) ? 60 : 30,
+          far: true, town: s.id, townName: s.name, travelNote: s.travelNote || "", editions: x.editions || 0, unesco: !!x.unesco, tags: ["in-town"], category: "Sight" }); });
         // With its sights listed one by one, the town itself is the walk through its centre.
         if (own.length >= 2) s.minutes = Math.min(s.minutes || 60, 60);
         s.foodDrink = (t.foodDrink || []).map(x => ({ name: E.latin(x.name) || x.name, lat: isFinite(x.lat) ? x.lat : null, lng: isFinite(x.lng) ? x.lng : null, kind: x.kind, note: x.content || "", special: E.foodSpecial(x) }));
@@ -2596,9 +2601,9 @@ if (typeof module !== "undefined") module.exports = KEngine;
     const plain = walk(order, win, ctx), my = E.mealPlan(ctx, "Lunch"), L = my.meal;
     if (my.skip || !lunchWanted(win) || (!ctx.eats.length && !my.pick)) return { seq: order, r: plain };
     const pts = [win.head[win.head.length - 1]].concat(order), lens = [L.len, L.quick, E.TO_GO];
-    const mealAt = (e, len, extra) => Object.assign({ id: "eat:" + e.k, eatKey: e.k, name: e.r.name, lat: e.r.lat, lng: e.r.lng, mealOf: L, len, quick: len < L.len, toGo: len === E.TO_GO, chosen: !!my.pick, fromMap: !!e.r.fromMap, travelNote: e.r.travelNote || "",
+    const mealAt = (e, len, extra) => Object.assign({ id: "eat:" + e.k, eatKey: e.k, name: e.r.name, lat: e.r.lat, lng: e.r.lng, mealOf: L, len, quick: len < L.len, toGo: len === E.TO_GO, chosen: !!my.pick, fromMap: !!e.r.fromMap, packed: !!e.r.packed, travelNote: e.r.travelNote || "",
       oh: len === E.TO_GO ? null : ((ctx.eatFacts || {})[e.k] || {}).oh || null }, extra || {});
-    const ok = c => c.r.lateMeal < 90 && !c.r.items.some(x => x.shut) && c.r.late <= plain.late && c.r.over <= plain.over
+    const ok = c => c.r.lateMeal <= E.MEAL_LATE && !c.r.items.some(x => x.shut) && c.r.late <= plain.late && c.r.over <= plain.over
       && (c.k === order.length || c.r.waits - plain.waits <= 45)
       && !(win.hard && !c.r.over && c.r.end > plain.end && win.endBy - c.r.end < E.FILL_MARGIN);
     let best = null, tried = 0;
@@ -2632,10 +2637,14 @@ if (typeof module !== "undefined") module.exports = KEngine;
     }
     // Inside a long visit over lunchtime: the visit gives up the lunch and the walk there and back. A visit keeps at least
     // 45 minutes of its own.
-    plain.items.filter(x => x.t === "stop" || x.t === "meal").forEach((st, k) => {
+    // Last of all, only when no place to eat fits anywhere on the day: inside a long visit with no place to eat known
+    // within reach (a beach park, a ranch), lunch is still a timed stop, one the traveler brings, said plainly (Nov 20,
+    // the lunch goal: every day out over lunchtime has a timed lunch).
+    const inside = packed => plain.items.filter(x => x.t === "stop" || x.t === "meal").forEach((st, k) => {
       const s = order[k]; if (!s || s.mealOf || st.t !== "stop" || !isFinite(s.lat)) return;
       const over = Math.min(st.at + (st.min || 0), L.to) - Math.max(st.at, L.from);
-      const cands = my.pick ? [my.pick] : eatsNear(s, ctx, "Lunch", quick ? 1 : 3);
+      const near = my.pick ? [my.pick] : eatsNear(s, ctx, "Lunch", quick ? 1 : 3);
+      const cands = !packed ? near : near.length || my.pick || (s.minutes || 0) < 120 ? [] : [{ k: "own:" + s.id, r: { name: "A lunch you bring", lat: s.lat, lng: s.lng, packed: true } }];
       for (const len of lens) {
         if (over < len) continue;
         for (const e of cands) {
@@ -2649,6 +2658,7 @@ if (typeof module !== "undefined") module.exports = KEngine;
         }
       }
     });
+    inside(false); if (!best && !quick) inside(true);
     if (best) return Object.assign({ seq: best.seq, r: best.r }, best.cut ? { lunchIn: true } : {});
     // No lunch: on a day with room it's for want of a place; otherwise the stops fill the day.
     return { seq: order, r: plain, noLunch: tried ? "time" : "place" };
@@ -2743,6 +2753,25 @@ if (typeof module !== "undefined") module.exports = KEngine;
     }
     return null;
   }
+  // Lunch is part of the day (Richard, Nov 19: "Even if its a short 20 30 minute lunch, it needs to be notated"): a day
+  // whose stops leave no time for lunch gives one visit the few minutes a lunch on the go needs, the longest visit first,
+  // never below half its time or SHORT_MIN, as a visit is shortened to fit the day (and said so), before anything is dropped.
+  function trimForLunch(keep, win, ctx, end0) {
+    const ok = c => !c.r.over && !c.r.late && c.noLunch !== "time" && !(win.hard && c.r.end > end0 && win.endBy - c.r.end < E.FILL_MARGIN);
+    // One visit at a time, longest first, then the next as well: at most 45 minutes in all, so a short lunch is planned.
+    let k = keep.slice(), given = 0;
+    const cands = keep.filter(s => (s.minutes || 0) >= 40 && !s.mealOf).sort((a, b) => (b.minutes || 0) - (a.minutes || 0) || E.byId(a, b));
+    for (const s0 of cands) {
+      for (const by of [10, 15, 20, 25, 30]) {
+        const s = k.find(x => String(x.id) === String(s0.id)), was = s0.trimmed || s0.minutes, to = s0.minutes - by;
+        if (to < Math.max(SHORT_MIN, Math.ceil(was / 2)) || given + by > 45) break;
+        const t = k.map(x => x === s ? Object.assign({}, s0, { minutes: to, trimmed: was }) : x), c = arrange(t, win, ctx);
+        if (ok(c)) return { keep: t, cur: c };
+        if (by === 15 || to - 5 < Math.max(SHORT_MIN, Math.ceil(was / 2))) { k = t; given += by; break; } // keep this much and try the next visit too
+      }
+    }
+    return null;
+  }
   const lowestFirst = (a, b) => keepRank(a) - keepRank(b) || (a.worth || 0) - (b.worth || 0) || E.byId(b, a);
   // stops: the day's chosen sights (each with worth; wish = the traveler picked it). pool: other sights it may add.
   // Which stop to give up: among those whose loss makes the day fit, the one worth least; if no single loss is enough,
@@ -2831,6 +2860,7 @@ if (typeof module !== "undefined") module.exports = KEngine;
       const next = keep.concat([x.stop]), c = arrange(next, win, ctx);
       if (!c.r.over && !c.r.late && !(win.hard && win.endBy - c.r.end < E.FILL_MARGIN) && (c.noLunch !== "time" || cur.noLunch === "time" || wanted(x.stop))) { keep = next; cur = c; dropped = dropped.filter(y => y !== x); }
     }
+    if (cur.noLunch === "time" && lunchWanted(win)) { const t = trimForLunch(keep, win, ctx, cur.r.end); if (t) { keep = t.keep; cur = t.cur; } }
     // Spare time is the traveler's (Nov 18, Richard: "I wouldn't do the suggested options. Just let them select to fill
     // the spots."): the app never adds a sight on its own. It names the best unused sights nearby that would still fit,
     // each checked with the day as it is, for the traveler to add if they like. The day itself is only their picks.
@@ -2912,7 +2942,7 @@ if (typeof module !== "undefined") module.exports = KEngine;
         // quarter hour seated is no idle wait), and a meal that can't finish before closing is late by the minutes it runs
         // over (Nov 19 review: lunch was planned when the restaurant was shut).
         if (p.oh) { const len = p.len || m.len, f = E.hoursFit(p.oh, clock, len);
-          if (f.wait) { waits += Math.max(0, f.wait - E.MEAL_SEATED); clock += f.wait; } if (f.late > 0) { it.shut = true; it.lateMeal = (it.lateMeal || 0) + f.late; } } it.meal = m.label; it.min = p.len || m.len; if (m.booked) it.booked = true; if (m.pinned) it.pinned = true; if (p.chosen) it.chosen = true; if (p.toGo) it.toGo = true; if (p.fromMap) it.fromMap = true; if (clock > m.to) it.lateMeal = (it.lateMeal || 0) + clock - m.to; }
+          if (f.wait) { waits += Math.max(0, f.wait - E.MEAL_SEATED); clock += f.wait; } if (f.late > 0) { it.shut = true; it.lateMeal = (it.lateMeal || 0) + f.late; } } it.meal = m.label; it.min = p.len || m.len; if (m.booked) it.booked = true; if (m.pinned) it.pinned = true; if (p.chosen) it.chosen = true; if (p.toGo) it.toGo = true; if (p.fromMap) it.fromMap = true; if (p.packed) it.packed = true; if (clock > m.to) it.lateMeal = (it.lateMeal || 0) + clock - m.to; }
       it.at = clock; items.push(it); clock += it.min; prev = p;
     };
     const keep = () => states.push({ clock, prev, late, waits, rideMin, n: items.length });
@@ -2986,10 +3016,11 @@ if (typeof module !== "undefined") module.exports = KEngine;
       // ticked). Nothing is optional (Nov 18, Richard).
       const it = { t: x.t, id: x.t === "meal" ? null : x.id, name: x.name, at: x.at, min: x.min, bonus: false, along: false, meal: x.meal || null, late: x.late || 0 };
       if (x.wait) it.wait = x.wait; if (x.chosen) it.chosen = true; if (x.pinned) it.pinned = true;
-      if (src && src.lunchCut) it.lunchCut = src.lunchCut; // lunch is inside this visit: the visit gave it these minutes
+      if (x.packed) it.packed = true; if (src && src.lunchCut) it.lunchCut = src.lunchCut; // lunch is inside this visit: the visit gave it these minutes
       Object.assign(it, point(whereIs(x)));
       items.push(it);
     }
+    if (fit.onBoard) { const sp = win.tail[win.tail.length - 1]; items.push({ t: "meal", id: null, name: "Back on board", at: fit.onBoard.at, min: fit.onBoard.min, bonus: false, along: false, meal: "Lunch", late: 0, onBoard: true, lat: sp.lat, lng: sp.lng }); }
     if (dinner) items.push({ t: "evening", id: null, name: dinner.name, at: dinner.at, min: dinner.min, lat: dinner.lat, lng: dinner.lng, bonus: false, along: false, meal: "Dinner", late: 0, chosen: !!dinner.chosen });
     return { i, start: win.start, endBy: win.endBy, end: fit.r.end, over: fit.r.over > 0, straight: !!win.straight,
       head: win.head.map(x => ({ name: x.name, fixed: !!x.fixed, minutes: x.fixed ? x.minutes : 0 })), tail: win.tail.map(x => ({ name: x.name, fixed: !!x.fixed, minutes: x.fixed ? x.minutes : 0 })), items,
@@ -3174,6 +3205,15 @@ if (typeof module !== "undefined") module.exports = KEngine;
       }
       const fit = E.fitDay(d.cleared ? Object.assign({}, d, { fillTime: false }) : d, win, picks, pool, ctx);
       fit.kept.forEach(s => { if (s.filled) autoIds.add(String(s.id)); });
+      // Lunch back on board (Nov 20, decided for Richard's lunch rule: every day over lunchtime has a timed lunch): a port day
+      // whose picks fill the time ashore, back at the ship in time for lunch, has lunch on board. It never shortens a pick
+      // and never touches the time to be back: it comes after the return.
+      { const L = E.MEALS[0], ship = win.tail.length && win.tail[win.tail.length - 1].backToShip;
+        if (fit.noLunch === "time" && ship && fit.kept.length && fit.r.end <= L.to - E.TO_GO) {
+          fit.onBoard = { at: Math.max(fit.r.end, L.from), min: E.TO_GO + 10 }; fit.noLunch = null;
+          explain.push("Your picks fill the time ashore, so lunch is back on board at " + E.clock(fit.onBoard.at) + "."); } }
+      { const pk = (fit.r.items || []).find(x => x.packed), at = pk && fit.r.items.filter(x => x.t === "stop" && x.at <= pk.at).pop();
+        if (pk) explain.push("Bring lunch for " + E.clock(pk.at) + (at ? " at " + at.name : "") + ": places to eat there aren't in the guide yet."); }
       // A wanted stop the day had to give up (a pick, a finished guide, a must-see) comes with the ways to fit it back in.
       const ways = {};
       if (!again) fit.dropped.forEach(x => { if (!x.wish && !x.wanted) return;
@@ -5951,14 +5991,23 @@ function pointList(city, listKey) { return (city && city.starts && city.starts[l
 function lodgingFor(d, city) {
   const k = cityKeyFor(d) || keyOf(d.destination);
   const L = trip.lodging[k] || { idx: 0 };
-  if (L.idx === "custom") return L.ll ? { name: L.name, lat: L.ll.lat, lng: L.ll.lng } : null;
+  const real = v => v !== null && v !== "" && isFinite(+v) && +v !== 0;
+  if (L.idx === "custom" && L.ll && real(L.ll.lat) && real(L.ll.lng)) return { name: String(L.name || "").trim() || "Your hotel", lat: +L.ll.lat, lng: +L.ll.lng };
   const list = pointList(city, "hotel");
-  const hit = list[L.idx] || list[0];
-  if (hit) return hit;
+  // A hotel typed in (or brought in with a trip) that the map hasn't placed yet never blanks the day (Richard's
+  // boarding day, Nov 19: "Choose where you're staying" and nothing else). The day starts from the guide's first
+  // hotel area or the city centre, marked approx, and says so, until the hotel's spot is known. (Carried over from the
+  // demo copy, Nov 20.)
+  const wanted = L.idx === "custom" ? String(L.name || "").trim() : "";
+  const mark = p => L.idx === "custom" && p ? Object.assign({}, p, { approx: true, wanted }) : p;
+  const hit = L.idx === "custom" ? list[0] : (list[L.idx] || list[0]);
+  if (hit) return mark(hit);
   // A guide with no hotel areas listed: start from the city center rather than stopping the day plan.
   const c = pointList(city, "point")[0] || (city && city.sites && city.sites[0]);
-  return c ? { name: "Hotel near " + c.name, lat: c.lat, lng: c.lng } : null;
+  return c ? mark({ name: "Hotel near " + c.name, lat: c.lat, lng: c.lng }) : null;
 }
+// The day's note when the hotel isn't placed on the map yet (see lodgingFor).
+const approxStayNote = L => L && L.approx ? `We couldn't place ${L.wanted || "your hotel"} on the map yet, so today's plan uses ${L.name} as your hotel. Ride times from your real hotel may differ: add its street address under Trip to make them exact.` : null;
 function dayPoint(d, city) {
   const listKey = d.type === "port" || d.type === "embark" ? "cruise" : MODES[d.mode].list;
   const list = pointList(city, listKey);
@@ -6013,6 +6062,7 @@ const unsurePoint = P => !!P && (P.unknown || /Location approximate: city centre
 function dayWindow(d, city) {
   const L = lodgingFor(d, city), P = dayPoint(d, city);
   const w = { head: [], tail: [], start: 0, endBy: 0, notes: [], notesEnd: [], buffer: 0 };
+  if (approxStayNote(L) && !throughFrom(d)) w.notes.push(approxStayNote(L));
   if (unsurePoint(P) && P.unknown) { // a port already marked unknown in a saved guide: the app's own known terminals first
     const k = d.type === "port" || d.mode === "ship" ? "cruise" : /airport/i.test(P.name || "") || d.mode === "flight" ? "airport" : "cruise", ss = (city.sites || []).filter(x => isFinite(+x.lat)), mid = ss.length ? { lat: ss.map(x => +x.lat).sort((a, b) => a - b)[ss.length >> 1], lng: ss.map(x => +x.lng).sort((a, b) => a - b)[ss.length >> 1] } : null, g = knownGate(k, P, mid, 150);
     if (g) { P.lat = g.lat; P.lng = g.lng; delete P.unknown; } }
@@ -11366,6 +11416,9 @@ function renderPlan(d) {
     if (it.type === "fixed") return `<div class="${cls}">${tcell(it)}<div class="rail"><div class="dot fixed">H</div></div><div class="what">${it.free ? `<div class="nm">Free time until ${fmt(it.time + it.free)}</div><div class="sub">Breakfast, coffee or a last walk nearby. Then ${esc(it.place.name.replace(/^C/, "c"))} (${dur(it.bags)}).</div>` : `<div class="nm">${esc(it.place.name)}</div><div class="sub">${dur(it.place.minutes)}</div>`}</div></div>`;
     if (it.type === "meal") {
       const r = it.place, lbl = it.meal.label, mv = canDrag && !r.booked && !it.meal.booked;
+      // Lunch back on board: the picks fill the time ashore, so lunch is a timed stop on the ship (no place to change).
+      if (r.packed) return `<div class="${cls}">${tcell(it)}<div class="rail"><div class="dot meal">${lbl[0]}</div></div><div class="what"><div class="nm">${lbl}: ${esc(r.name)}</div><div class="sub">${esc("Places to eat here aren't in the guide yet · " + dur(it.meal.len))}</div></div></div>`;
+      if (r.onBoard) return `<div class="${cls}">${tcell(it)}<div class="rail"><div class="dot meal">${lbl[0]}</div></div><div class="what"><div class="nm">${lbl}: ${esc(r.name)}</div><div class="sub">${esc("On the ship, once you're back · " + dur(it.meal.len))}</div></div></div>`;
       return `<div class="${cls}"${mv ? ` data-meal="${esc(lbl)}"` : ""}>${tcell(it)}<div class="rail"><div class="dot meal">${lbl[0]}</div></div><div class="what">${mv ? dragHandle({ id: "meal:" + lbl, name: lbl }) : ""}
         <div class="nm">${it.meal.quick && !r.booked ? "Quick " + lbl.toLowerCase() : lbl}: ${esc(r.name)}</div><div class="sub">${[r.booked ? "Your reservation" : "", r.cuisine, r.price, r.generic || r.booked ? "" : r.kind === "local" ? "Local spot" : "Popular with visitors", dur(it.meal.len)].filter(Boolean).map(esc).join(" · ")}</div>
         ${mealFacts(r)}${r.booked ? bookedLinks(lbl) : mealChangeLink(lbl, r) + mealMore(r, city, lbl)}</div></div>`;
@@ -18416,7 +18469,7 @@ if (typeof window !== "undefined" && window.ENGINE2 && window.KEngine) (function
       }
       if (x.t === "meal" || x.t === "evening") {
         const label = x.meal || "Lunch", m = MEALS.find(z => z.label === label) || MEALS[0];
-        const r = Object.assign({}, byName(city.restaurants, x.name) || at(x), { alts: [] });
+        const r = x.onBoard ? { name: "Back on board", onBoard: true, generic: true, lat: x.lat, lng: x.lng, alts: [] } : x.packed ? { name: "Bring your own", packed: true, generic: true, lat: x.lat, lng: x.lng, alts: [] } : Object.assign({}, byName(city.restaurants, x.name) || at(x), { alts: [] });
         const it = { type: x.t === "evening" ? "evening" : "meal", meal: Object.assign({}, m, { len: x.min || m.len }), place: r, time: x.at };
         items.push(it); (x.t === "evening" ? evening : meals).push(x.t === "evening" ? it : r);
       }
@@ -18445,4 +18498,4 @@ render();
 
 </script>
 <script>if ("serviceWorker" in navigator) addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));</script>
-<script>(function(){var B="c5dedcb-1795128552";function ep(v){return +String(v).split("-").pop()||0}function busy(){return document.body&&document.body.classList.contains("touring-on")}function chk(){if(location.protocol!=="https:"||document.visibilityState!=="visible")return;fetch("version.txt",{cache:"no-store"}).then(function(r){return r.ok?r.text():""}).then(function(t){t=t.trim();if(!t||t===B||ep(t)<=ep(B)||busy())return;var k="kairoute.reloadedTo",s="";try{s=sessionStorage.getItem(k)||"";sessionStorage.setItem(k,t)}catch(e){}if(s===t){var u=new URL(location.href);if(u.searchParams.get("v")===t)return;u.searchParams.set("v",t);location.replace(u.href)}else location.reload()}).catch(function(){})}addEventListener("load",chk);addEventListener("pageshow",function(e){if(e.persisted)chk()});addEventListener("focus",chk);document.addEventListener("visibilitychange",chk);setInterval(chk,300000);if(navigator.serviceWorker)navigator.serviceWorker.addEventListener("message",function(e){if(e.data&&e.data.type==="kairoute-sw"){try{e.source.postMessage({type:"kairoute-alive"})}catch(x){}chk()}})})();</script>
+<script>(function(){var B="3f3dd39-1795136414";function ep(v){return +String(v).split("-").pop()||0}function busy(){return document.body&&document.body.classList.contains("touring-on")}function chk(){if(location.protocol!=="https:"||document.visibilityState!=="visible")return;fetch("version.txt",{cache:"no-store"}).then(function(r){return r.ok?r.text():""}).then(function(t){t=t.trim();if(!t||t===B||ep(t)<=ep(B)||busy())return;var k="kairoute.reloadedTo",s="";try{s=sessionStorage.getItem(k)||"";sessionStorage.setItem(k,t)}catch(e){}if(s===t){var u=new URL(location.href);if(u.searchParams.get("v")===t)return;u.searchParams.set("v",t);location.replace(u.href)}else location.reload()}).catch(function(){})}addEventListener("load",chk);addEventListener("pageshow",function(e){if(e.persisted)chk()});addEventListener("focus",chk);document.addEventListener("visibilitychange",chk);setInterval(chk,300000);if(navigator.serviceWorker)navigator.serviceWorker.addEventListener("message",function(e){if(e.data&&e.data.type==="kairoute-sw"){try{e.source.postMessage({type:"kairoute-alive"})}catch(x){}chk()}})})();</script>
