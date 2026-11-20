@@ -1,0 +1,18 @@
+name: Host probe
+on:
+  push:
+    branches: [claude/project-thread-4u8lak]
+    paths: ['.github/workflows/host-probe.yml']
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          S=52708e8eb2f9e5c5623558eab129d1972f8e6d6a
+          for u in "https://cdn.statically.io/gh/gilsonr0566-sys/kairoute-beta2/$S/voice-test/index.html" \
+                   "https://raw.githack.com/gilsonr0566-sys/kairoute-beta2/$S/voice-test/index.html" \
+                   "https://rawcdn.githack.com/gilsonr0566-sys/kairoute-beta2/$S/voice-test/index.html" \
+                   "https://cdn.statically.io/gh/gilsonr0566-sys/kairoute-beta2/$S/voice-test/coi-serviceworker.js" ; do
+            echo "=== $u"; curl -sIL -A "Mozilla/5.0 (Linux; Android 14; SM-S928U) AppleWebKit/537.36 Chrome/130 Mobile Safari/537.36" "$u" | grep -iE "^HTTP|content-type|cross-origin|location"
+            curl -sL -A "Mozilla/5.0 (Linux; Android 14) Chrome/130 Mobile" "$u" | head -c 300; echo
+          done
