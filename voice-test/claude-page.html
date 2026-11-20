@@ -1,0 +1,410 @@
+<title>Kairoute Voice Test</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<style>
+  /* Layout: one calm column of three listening cards, phone first. */
+  :root {
+    --bg: #f3f6fa; --card: #ffffff; --ink: #142032; --soft: #566679; --line: #d9e1ea;
+    --accent: #1f6fd1; --accent-ink: #ffffff; --accent-soft: #e3edfa; --good: #1d7f47; --warn: #a55a12;
+    --font: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --display: "Space Grotesk", "Inter", system-ui, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0e1520; --card: #162131; --ink: #e7edf5; --soft: #9daec1; --line: #2a3a4f;
+      --accent: #5a9cf0; --accent-ink: #07111d; --accent-soft: #1a3050; --good: #52c98a; --warn: #e8a462; color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0e1520; --card: #162131; --ink: #e7edf5; --soft: #9daec1; --line: #2a3a4f;
+    --accent: #5a9cf0; --accent-ink: #07111d; --accent-soft: #1a3050; --good: #52c98a; --warn: #e8a462; color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  body { background: var(--bg); color: var(--ink); font: 17px/1.5 var(--font); }
+  main { max-width: 720px; margin: 0 auto; padding-block: 16px 48px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); display: grid; gap: 16px; }
+  h1 { font: 700 1.6rem/1.2 var(--display); margin: 8px 0 0; text-wrap: balance; }
+  h2 { font: 600 1.15rem/1.3 var(--display); margin: 0; text-wrap: balance; }
+  .lead { color: var(--soft); margin: 0; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 16px; display: grid; gap: 12px; min-width: 0; }
+  .sub { color: var(--soft); font-size: .93rem; margin: 0; }
+  .group { display: grid; gap: 6px; }
+  .label { font-size: .75rem; letter-spacing: .06em; text-transform: uppercase; color: var(--soft); }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; }
+  .chip { border: 1px solid var(--line); background: var(--card); color: var(--ink); border-radius: 999px; padding: 8px 14px; font: inherit; font-size: .95rem; cursor: pointer; min-height: 40px; }
+  .chip small { color: var(--soft); }
+  .chip[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+  .chip[aria-pressed="true"] small { color: var(--accent-ink); opacity: .8; }
+  .row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+  button.main, button.ghost { border: 0; border-radius: 10px; padding: 12px 18px; font: 600 1rem var(--font); cursor: pointer; min-height: 48px; }
+  button.main { background: var(--accent); color: var(--accent-ink); }
+  button.ghost { background: var(--accent-soft); color: var(--ink); font-weight: 500; }
+  button:disabled { opacity: .5; cursor: default; }
+  button:focus-visible, .chip:focus-visible, select:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+  select { font: inherit; font-size: 1rem; padding: 10px; border-radius: 10px; border: 1px solid var(--line); background: var(--card); color: var(--ink); max-width: 100%; min-width: 0; }
+  .bar { height: 8px; background: var(--accent-soft); border-radius: 99px; overflow: hidden; }
+  .bar > i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .2s; }
+  .status { font-size: .95rem; color: var(--soft); min-height: 1.4em; margin: 0; }
+  .facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px; }
+  .facts:empty { display: none; }
+  .fact { background: var(--accent-soft); border-radius: 10px; padding: 8px 10px; }
+  .fact b { display: block; font-size: 1.1rem; font-variant-numeric: tabular-nums; }
+  .fact span { font-size: .8rem; color: var(--soft); }
+  details summary { cursor: pointer; color: var(--accent); font-size: .95rem; }
+  .story { white-space: pre-wrap; font-size: .95rem; color: var(--soft); border-left: 3px solid var(--accent); padding-left: 10px; margin: 8px 0 0; }
+  .ok { color: var(--good); } .warn { color: var(--warn); }
+  table { width: 100%; border-collapse: collapse; font-size: .92rem; }
+  td, th { text-align: left; padding: 8px 4px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { width: 34%; font-weight: 600; }
+  @media (prefers-reduced-motion: reduce) { .bar > i { transition: none; } }
+</style>
+
+<main>
+  <header>
+    <h1>Kairoute voice test</h1>
+    <p class="lead">Free voices that run on your phone or tablet itself. No account, no fees, and the story never leaves the device. Turn your volume up, pick a voice, then tap Play.</p>
+  </header>
+
+  <section class="card" aria-labelledby="k-h">
+    <h2 id="k-h">Kokoro voices</h2>
+    <p class="sub">The first Play downloads the voice engine once (about 115 MB, so Wi-Fi is best). Every voice below shares that one download.</p>
+    <div class="group">
+      <span class="label">English</span>
+      <div class="chips" id="kVoices"></div>
+    </div>
+    <div class="group">
+      <span class="label">Other languages</span>
+      <div class="chips" id="kLangs"></div>
+    </div>
+    <div class="row">
+      <button class="main" id="kPlay" type="button">Play the Acropolis story</button>
+      <button class="ghost" id="kStop" type="button" disabled>Stop</button>
+    </div>
+    <div class="bar" id="kBar" hidden><i></i></div>
+    <p class="status" id="kStatus" aria-live="polite">Ready. Nothing has been downloaded yet.</p>
+    <div class="facts" id="kFacts"></div>
+    <details><summary>Read the text being spoken</summary><p class="story" id="kText"></p></details>
+  </section>
+
+  <section class="card" aria-labelledby="p-h">
+    <h2 id="p-h">Your phone's own voice, for comparison</h2>
+    <p class="sub">Built into Android and iPhone. Nothing to download, and it uses the same language as the voice picked above.</p>
+    <div class="row">
+      <select id="pVoice" aria-label="Phone voice"></select>
+      <button class="main" id="pPlay" type="button">Play with phone voice</button>
+      <button class="ghost" id="pStop" type="button">Stop</button>
+    </div>
+    <p class="status" id="pStatus" aria-live="polite"></p>
+  </section>
+
+  <section class="card" aria-labelledby="a-h">
+    <h2 id="a-h">About this test</h2>
+    <table>
+      <tr><th>Cost</th><td>Free. The voice is made on the device, so there is no charge per traveller or per minute.</td></tr>
+      <tr><th>Licence</th><td>Kokoro is Apache 2.0, which allows business use.</td></tr>
+      <tr><th>Offline</th><td>After the first download the engine is kept on the device. In the real app it would work with no signal.</td></tr>
+      <tr><th>This device</th><td id="dev">Checking…</td></tr>
+    </table>
+  </section>
+</main>
+
+<script type="module">
+const $ = (id) => document.getElementById(id);
+const R = window.__voiceTest = { runs: [], errors: [], log: [] };
+const note = (m) => { R.log.push(m); };
+
+// ---------- Text ----------
+const STORY = {
+  en: "Welcome to the Acropolis. You are standing on a rock that has watched over Athens for more than three thousand years. Look up at the Parthenon. It was finished in the year 438 BC, built to honour Athena, the protector of the city. The columns look perfectly straight, but they are not. Each one swells gently in the middle, a clever trick so the temple looks flawless from down below. Take a moment here. When you are ready, follow the path to your right, toward the Erechtheion and its famous stone maidens.",
+  es: "Bienvenidos a la Acrópolis. Están sobre una roca que vigila Atenas desde hace más de tres mil años. Miren el Partenón, construido en honor a Atenea, la protectora de la ciudad. Las columnas parecen rectas, pero no lo son. Cada una se ensancha un poco en el centro, para que el templo se vea perfecto desde abajo.",
+  fr: "Bienvenue sur l'Acropole. Vous êtes sur un rocher qui veille sur Athènes depuis plus de trois mille ans. Regardez le Parthénon, construit en l'honneur d'Athéna, la protectrice de la ville. Les colonnes semblent droites, mais elles ne le sont pas. Chacune s'élargit légèrement au milieu, pour que le temple paraisse parfait vu d'en bas.",
+  it: "Benvenuti sull'Acropoli. Vi trovate su una roccia che veglia su Atene da più di tremila anni. Guardate il Partenone, costruito in onore di Atena, la protettrice della città. Le colonne sembrano dritte, ma non lo sono. Ognuna si allarga leggermente al centro, perché il tempio appaia perfetto visto dal basso.",
+  pt: "Bem-vindos à Acrópole. Vocês estão sobre uma rocha que vigia Atenas há mais de três mil anos. Olhem para o Partenon, construído em honra de Atena, a protetora da cidade. As colunas parecem retas, mas não são. Cada uma se alarga um pouco no meio, para que o templo pareça perfeito visto de baixo.",
+};
+const ENGLISH = [
+  { id: 'af_heart', label: 'Heart', note: 'US woman', lang: 'en', speech: 'en-US' },
+  { id: 'af_bella', label: 'Bella', note: 'US woman', lang: 'en', speech: 'en-US' },
+  { id: 'am_michael', label: 'Michael', note: 'US man', lang: 'en', speech: 'en-US' },
+  { id: 'am_fenrir', label: 'Fenrir', note: 'US man', lang: 'en', speech: 'en-US' },
+  { id: 'bf_emma', label: 'Emma', note: 'British woman', lang: 'en', speech: 'en-GB' },
+  { id: 'bm_george', label: 'George', note: 'British man', lang: 'en', speech: 'en-GB' },
+];
+const OTHER = [
+  { id: 'ef_dora', label: 'Spanish', note: 'woman', lang: 'es', espeak: 'es', speech: 'es' },
+  { id: 'em_alex', label: 'Spanish', note: 'man', lang: 'es', espeak: 'es', speech: 'es' },
+  { id: 'ff_siwis', label: 'French', note: 'woman', lang: 'fr', espeak: 'fr', speech: 'fr' },
+  { id: 'if_sara', label: 'Italian', note: 'woman', lang: 'it', espeak: 'it', speech: 'it' },
+  { id: 'im_nicola', label: 'Italian', note: 'man', lang: 'it', espeak: 'it', speech: 'it' },
+  { id: 'pf_dora', label: 'Portuguese', note: 'woman', lang: 'pt', espeak: 'pt-br', speech: 'pt' },
+];
+
+// ---------- Voice picker ----------
+let pick = ENGLISH[0];
+const allChips = [];
+function addChips(el, list) {
+  for (const v of list) {
+    const b = document.createElement('button');
+    b.type = 'button'; b.className = 'chip'; b.dataset.voice = v.id;
+    b.setAttribute('aria-pressed', v === pick ? 'true' : 'false');
+    b.innerHTML = `${v.label} <small>${v.note}</small>`;
+    b.onclick = () => { allChips.forEach(c => c.setAttribute('aria-pressed', 'false')); b.setAttribute('aria-pressed', 'true'); pick = v; showText(); fillPhoneVoices(); };
+    el.appendChild(b); allChips.push(b);
+  }
+}
+addChips($('kVoices'), ENGLISH); addChips($('kLangs'), OTHER);
+function showText() { $('kText').textContent = STORY[pick.lang]; $('kPlay').textContent = pick.lang === 'en' ? 'Play the Acropolis story' : `Play in ${pick.label}`; }
+showText();
+
+const MB = (b) => Math.round(b / 1048576) + ' MB';
+const sec = (ms) => (ms / 1000).toFixed(1) + ' s';
+const facts = (items) => { $('kFacts').innerHTML = items.map(([v, l]) => `<div class="fact"><b>${v}</b><span>${l}</span></div>`).join(''); };
+const setBar = (f) => { $('kBar').hidden = f == null; if (f != null) $('kBar').firstElementChild.style.width = Math.round(f * 100) + '%'; };
+$('dev').textContent = `${navigator.hardwareConcurrency || '?'} processor cores reported. ${'gpu' in navigator ? 'Graphics chip available.' : ''}`;
+
+// ---------- File loader: the voice files are published beside this page ----------
+// Big files are stored in 14 MB pieces and joined as they arrive. The same code runs in each helper.
+const LOADER = String.raw`
+const HF = 'https://huggingface.co/onnx-community/Kokoro-82M-v1.0-ONNX/resolve/main/';
+const PIECES = {
+  'k/onnx/model_quantized.onnx': { parts: 7, prefix: 'k/model.part', size: 92361116 },
+  'ort/ort.wasm': { parts: 2, prefix: 'ort/ort.wasm.part', size: 21596019 },
+  'ph/piper_phonemize.data': { parts: 2, prefix: 'ph/piper_phonemize.data.part', size: 18077249 },
+};
+let BASE = null, downloaded = 0;
+const pub = (n) => /\.(json|wasm)$/.test(n) ? n : n + '.wasm'; // binary files are published with a .wasm name
+const realFetch = self.fetch.bind(self);
+function localPath(input) {
+  const u = String(input instanceof Request ? input.url : input);
+  if (u.startsWith(HF)) return 'k/' + u.slice(HF.length).split('?')[0];
+  if (BASE && u.startsWith(BASE)) return u.slice(BASE.length).split('?')[0];
+  return null;
+}
+async function getFile(path) {
+  const type = path.endsWith('.wasm') ? 'application/wasm' : 'application/octet-stream';
+  const p = PIECES[path];
+  if (!p) {
+    const r = await realFetch(new URL(pub(path), BASE));
+    if (!r.ok) throw new Error('Missing file ' + path + ' (' + r.status + ')');
+    const b = await r.arrayBuffer(); downloaded += b.byteLength;
+    return new Response(b, { headers: { 'content-type': type, 'content-length': String(b.byteLength) } });
+  }
+  const names = Array.from({ length: p.parts }, (_, i) => p.prefix + String(i).padStart(2, '0'));
+  const body = new ReadableStream({ async start(ctrl) {
+    try {
+      for (const n of names) {
+        const r = await realFetch(new URL(pub(n), BASE));
+        if (!r.ok) throw new Error('Missing piece ' + n + ' (' + r.status + ')');
+        const rd = r.body.getReader();
+        for (;;) { const { done, value } = await rd.read(); if (done) break; downloaded += value.length; ctrl.enqueue(value); }
+      }
+      ctrl.close();
+    } catch (e) { ctrl.error(e); }
+  } });
+  return new Response(body, { headers: { 'content-type': type, 'content-length': String(p.size) } });
+}
+self.fetch = async (input, init) => {
+  const path = localPath(input);
+  if (path && /^(k|ort|ph)\//.test(path)) return getFile(path);
+  return realFetch(input, init);
+};
+`;
+
+// ---------- Helper: one copy of the voice engine, running on its own processor core ----------
+const HELPER = LOADER + String.raw`
+let tts = null;
+self.onmessage = async (e) => {
+  const m = e.data;
+  try {
+    if (m.type === 'init') {
+      BASE = m.base;
+      const t0 = performance.now();
+      const lib = await import('https://cdn.jsdelivr.net/npm/kokoro-js@1.2.1/dist/kokoro.web.js');
+      lib.env.wasmPaths = { mjs: 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.5.1/dist/ort-wasm-simd-threaded.jsep.mjs', wasm: BASE + 'ort/ort.wasm' };
+      const files = {};
+      tts = await lib.KokoroTTS.from_pretrained('onnx-community/Kokoro-82M-v1.0-ONNX', { dtype: 'q8', device: 'wasm',
+        progress_callback: (p) => { if (p.status === 'progress' && p.total) { files[p.file] = p;
+          let tot = 0, got = 0; for (const f of Object.values(files)) { tot += f.total; got += f.loaded; }
+          self.postMessage({ type: 'progress', got, tot }); } } });
+      self.postMessage({ type: 'ready', ms: performance.now() - t0, bytes: downloaded });
+    } else if (m.type === 'gen') {
+      const t0 = performance.now();
+      let out;
+      if (m.phonemes != null) { const { input_ids } = tts.tokenizer(m.phonemes, { truncation: true }); out = await tts.generate_from_ids(input_ids, { voice: m.voice }); }
+      else out = await tts.generate(m.text, { voice: m.voice });
+      const a = out.audio;
+      self.postMessage({ type: 'audio', job: m.job, audio: a, rate: out.sampling_rate, ms: performance.now() - t0 }, [a.buffer]);
+    }
+  } catch (err) { self.postMessage({ type: 'error', job: m.job, message: (err && err.message) || String(err) }); }
+};
+`;
+
+// The page itself only loads the pronunciation guide (two files, one in pieces).
+const BASE = new URL('.', location.href).href;
+let downloaded = 0;
+async function getBytes(names) {
+  const parts = [];
+  for (const n of names) { const r = await fetch(new URL(/\.wasm$/.test(n) ? n : n + '.wasm', BASE)); if (!r.ok) throw new Error('Missing file ' + n + ' (' + r.status + ')'); const b = await r.arrayBuffer(); downloaded += b.byteLength; parts.push(new Uint8Array(b)); }
+  const out = new Uint8Array(parts.reduce((a, p) => a + p.length, 0)); let o = 0; for (const p of parts) { out.set(p, o); o += p.length; }
+  return out.buffer;
+}
+
+const CORES = navigator.hardwareConcurrency || 2;
+const HELPERS = Math.max(1, Math.min(3, Math.floor(CORES / 2)));
+const pool = [];
+let firstLoad = null;
+function makeHelper() {
+  const url = URL.createObjectURL(new Blob([HELPER], { type: 'text/javascript' }));
+  const w = new Worker(url, { type: 'module' });
+  const h = { w, busy: false, ready: null, onAudio: null };
+  h.ready = new Promise((res, rej) => {
+    w.onmessage = (e) => {
+      const m = e.data;
+      if (m.type === 'progress' && h.onProgress) h.onProgress(m);
+      else if (m.type === 'ready') res(m);
+      else if (m.type === 'audio' || m.type === 'error') { if (m.type === 'error' && !h.started) rej(new Error(m.message)); h.onAudio && h.onAudio(m); }
+    };
+    w.onerror = (e) => rej(new Error(e.message || 'helper failed to start'));
+  });
+  w.postMessage({ type: 'init', base: BASE });
+  return h;
+}
+async function loadEngine() {
+  const first = makeHelper();
+  first.onProgress = (m) => { setBar(m.got / m.tot); $('kStatus').textContent = `Downloading the voice engine (one time only): ${MB(m.got)} of ${MB(m.tot)}`; };
+  const info = await first.ready; first.started = true; pool.push(first);
+  // Extra helpers start from the copy already on the device, then share the work.
+  for (let i = 1; i < HELPERS; i++) { const h = makeHelper(); h.ready.then(() => { h.started = true; pool.push(h); note('helper ' + pool.length + ' ready'); }).catch((e) => note('helper failed: ' + e.message)); }
+  return info;
+}
+
+// Pronunciation for other languages (eSpeak, run on the device too)
+let phon = null;
+async function loadPhonemizer() {
+  const [{ createPiperPhonemize }, wasm, data] = await Promise.all([
+    import('https://cdn.jsdelivr.net/npm/@diffusionstudio/vits-web@1.0.3/dist/piper-DeOu3H9E.js'),
+    getBytes(['ph/piper_phonemize.wasm']), getBytes(['ph/piper_phonemize.data.part00', 'ph/piper_phonemize.data.part01']),
+  ]);
+  return { createPiperPhonemize, wasm, data };
+}
+function toPhonemes(text, espeak) {
+  return new Promise((resolve, reject) => {
+    let got = false;
+    phon.createPiperPhonemize({
+      wasmBinary: phon.wasm, getPreloadedPackage: () => phon.data, locateFile: (f) => f, noExitRuntime: true,
+      print: (line) => { if (got) return; got = true; try { resolve(JSON.parse(line).phonemes.join('')); } catch (e) { reject(e); } },
+      printErr: (e) => note('espeak: ' + e),
+    }).then((m) => m.callMain(['-l', espeak, '--input', JSON.stringify([{ text }]), '--espeak_data', '/espeak-ng-data'])).catch((e) => { if (!got) reject(e); });
+  });
+}
+
+// ---------- Playback: sentences are shared out to the helpers and played in order ----------
+let ctx = null, nextAt = 0, sources = [], run = 0;
+function startAudio() { ctx = ctx || new (window.AudioContext || window.webkitAudioContext)(); if (ctx.state === 'suspended') ctx.resume(); nextAt = ctx.currentTime + 0.05; }
+function queue(samples, rate) {
+  const buf = ctx.createBuffer(1, samples.length, rate); buf.getChannelData(0).set(samples);
+  const s = ctx.createBufferSource(); s.buffer = buf; s.connect(ctx.destination);
+  const at = Math.max(nextAt, ctx.currentTime + 0.02); s.start(at); nextAt = at + buf.duration + 0.15; sources.push(s);
+  return at;
+}
+function stopAll() { run++; sources.forEach(s => { try { s.stop(); } catch {} }); sources = []; try { speechSynthesis.cancel(); } catch {} }
+const sentences = (t) => t.match(/[^.!?]+[.!?]+/g).map(s => s.trim());
+
+function generateAll(v, list, me, onPiece) {
+  return new Promise((resolve, reject) => {
+    let next = 0, done = 0, playUpTo = 0; const results = [];
+    const tryPlay = () => { while (results[playUpTo]) { onPiece(results[playUpTo], playUpTo); playUpTo++; } if (playUpTo === list.length) resolve(); };
+    const feed = () => {
+      if (me !== run) return resolve();
+      for (const h of pool) {
+        if (h.busy || next >= list.length) continue;
+        const job = next++; h.busy = true;
+        h.onAudio = (m) => {
+          h.busy = false;
+          if (m.type === 'error') return reject(new Error(m.message));
+          results[m.job] = m; done++; tryPlay(); feed();
+        };
+        const msg = { type: 'gen', job, voice: v.id };
+        Promise.resolve(v.lang === 'en' ? null : toPhonemes(list[job], v.espeak)).then((ph) => {
+          if (ph == null) msg.text = list[job]; else msg.phonemes = ph;
+          h.w.postMessage(msg);
+        }).catch(reject);
+      }
+    };
+    feed();
+    // New helpers join as they finish warming up.
+    const timer = setInterval(() => { if (playUpTo >= list.length || me !== run) clearInterval(timer); else feed(); }, 300);
+  });
+}
+
+$('kPlay').onclick = async () => {
+  stopAll(); const me = run; startAudio();
+  const v = pick, tap = performance.now(), r = { voice: v.id };
+  $('kPlay').disabled = true; $('kStop').disabled = false; facts([]);
+  try {
+    if (!firstLoad) { $('kStatus').textContent = 'Starting the voice engine…'; firstLoad = loadEngine(); const l = await firstLoad; r.loadMs = l.ms; r.bytes = l.bytes; }
+    else await firstLoad;
+    if (v.lang !== 'en' && !phon) { $('kStatus').textContent = 'Getting the pronunciation guide for other languages (one time, 18 MB)…'; const b0 = downloaded; phon = await loadPhonemizer(); r.bytes = (r.bytes || 0) + (downloaded - b0); }
+    setBar(null);
+    $('kStatus').textContent = `Preparing ${v.label} ${v.note}…`;
+    let work = 0, audio = 0;
+    const genStart = performance.now();
+    await generateAll(v, sentences(STORY[v.lang]), me, (m) => {
+      if (me !== run) return;
+      const at = queue(m.audio, m.rate); audio += m.audio.length / m.rate; work += m.ms;
+      if (r.firstMs == null) { r.firstMs = performance.now() - tap + Math.max(0, (at - ctx.currentTime) * 1000); $('kStatus').textContent = `Speaking: ${v.label} ${v.note}`; }
+    });
+    if (me !== run) return;
+    r.helpers = pool.length; r.audioSec = audio; r.wallMs = performance.now() - genStart; r.speed = audio / (r.wallMs / 1000);
+    facts([
+      r.bytes ? [MB(r.bytes), 'downloaded, one time only'] : ['0 MB', 'already on this device'],
+      ...(r.loadMs ? [[sec(r.loadMs), 'to download and start']] : []),
+      [sec(r.firstMs), 'from tap to first word'],
+      [r.speed.toFixed(1) + '×', 'speaking speed, using ' + r.helpers + (r.helpers === 1 ? ' core' : ' cores') + ' (1× or more means no gaps)'],
+    ]);
+    $('kStatus').innerHTML = r.speed >= 1 ? '<span class="ok">Playing. This device makes speech faster than it is spoken, so there are no gaps.</span>' : '<span class="warn">Playing. This device makes speech a little slower than it is spoken, so you may hear short pauses between sentences.</span>';
+    R.runs.push(r); report({ ok: true, ...r });
+  } catch (e) {
+    const msg = (e && e.message) || String(e);
+    R.errors.push(msg); report({ ok: false, voice: v.id, error: msg.slice(0, 300) });
+    $('kStatus').innerHTML = `<span class="warn">The voice engine could not start on this device: ${msg.replace(/</g, '&lt;')}</span>`;
+  } finally { $('kPlay').disabled = false; }
+};
+$('kStop').onclick = () => { stopAll(); $('kStop').disabled = true; $('kStatus').textContent = 'Stopped.'; };
+
+// ---------- Phone voice ----------
+let phoneVoices = [];
+function fillPhoneVoices() {
+  if (!('speechSynthesis' in window)) { $('pVoice').innerHTML = '<option>Not available here</option>'; return; }
+  phoneVoices = speechSynthesis.getVoices();
+  const want = pick.speech.toLowerCase();
+  let list = phoneVoices.filter(v => v.lang.toLowerCase().replace('_', '-').startsWith(want));
+  if (!list.length) list = phoneVoices.filter(v => v.lang.toLowerCase().startsWith(want.slice(0, 2)));
+  $('pVoice').innerHTML = list.length ? list.map(v => `<option value="${phoneVoices.indexOf(v)}">${v.name}</option>`).join('') : '<option value="">Phone default</option>';
+  const best = list.findIndex(v => /natural|enhanced|premium|google/i.test(v.name));
+  if (best >= 0) $('pVoice').selectedIndex = best;
+}
+fillPhoneVoices();
+try { speechSynthesis.onvoiceschanged = fillPhoneVoices; } catch {}
+$('pPlay').onclick = () => {
+  stopAll();
+  if (!('speechSynthesis' in window)) { $('pStatus').textContent = 'This browser has no built-in voice.'; return; }
+  const u = new SpeechSynthesisUtterance(STORY[pick.lang]);
+  const v = phoneVoices[+$('pVoice').value]; if (v) u.voice = v; u.lang = pick.speech;
+  const t0 = performance.now();
+  u.onstart = () => $('pStatus').textContent = `Speaking. Started after ${sec(performance.now() - t0)}.`;
+  u.onend = () => $('pStatus').textContent = 'Finished.';
+  u.onerror = (e) => $('pStatus').textContent = 'The phone voice stopped: ' + e.error;
+  speechSynthesis.speak(u);
+};
+$('pStop').onclick = () => { stopAll(); $('pStatus').textContent = 'Stopped.'; };
+// Each result is saved with this page so Claude can see how the voice ran on your devices.
+let dbp = null;
+async function report(data) {
+  try {
+    dbp = dbp || (window.claude && window.claude.use ? window.claude.use('db') : Promise.resolve(null));
+    const db = await dbp; if (!db) return;
+    const row = { ...data, at: new Date().toISOString(), cores: CORES, device: navigator.userAgent.slice(0, 200), gpu: 'gpu' in navigator };
+    for (const k of Object.keys(row)) if (typeof row[k] === 'number') row[k] = Math.round(row[k] * 100) / 100;
+    await db.collection('runs').add(row);
+  } catch (e) { note('report: ' + ((e && e.message) || e)); }
+}
+window.__voiceReady = true;
+</script>
