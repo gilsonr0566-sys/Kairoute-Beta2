@@ -3283,11 +3283,14 @@ if (typeof module !== "undefined") module.exports = KEngine;
       return { plan, sightIds, eatIds, kept: fit.kept, autoIds: [...autoIds], explain, spare: win.endBy - fit.r.end, win };
     };
     const done = new Array(days.length).fill(null);
-    for (const i of order) { done[i] = planDay(i, null); out[i] = done[i].plan; }
+    // A day marked alone (the Sights list asking whether one sight fits) is the only day planned: the other days still
+    // count for which picks move where, but their plans are not made.
+    const only = days.findIndex(d => d.alone), skip = i => only >= 0 && i !== only;
+    for (const i of order) { if (skip(i)) { done[i] = { plan: null, sightIds: [], eatIds: [], kept: [] }; continue; } done[i] = planDay(i, null); out[i] = done[i].plan; }
     // Second pass: a day with spare time takes sights no day used (an area's leftovers, a later day's surplus).
     for (const i of order) {
       const was = done[i], d = days[i];
-      if (!was.kept || was.win.straight || d.fillTime === false || d.cleared) continue;
+      if (skip(i) || !was.kept || was.win.straight || d.fillTime === false || d.cleared) continue;
       was.sightIds.forEach(id => ledger.release(id, i)); was.eatIds.forEach(k => ledger.releaseEat(k, i));
       const keepsAll = r => r.kept && was.kept.every(s => r.kept.some(k => String(k.id) === String(s.id)));
       const undo = r => { if (r.sightIds) { r.sightIds.forEach(id => ledger.release(id, i)); r.eatIds.forEach(k => ledger.releaseEat(k, i)); } };
@@ -3375,7 +3378,17 @@ if (typeof module !== "undefined") module.exports = KEngine;
   // each place's days are planned on their own and kept: a change on one day replans only the days of its place, and
   // checking whether a sight fits (the Sights list asks for every sight after every tick) replans one place, not the
   // whole trip. Kept plans are reused only when everything they were made from is the same, ride answers included.
-  const kept = new Map(), KEEP = 30;
+  // A day planned alone keeps its plans apart, so the Sights list's many quick checks never push out the whole plans.
+  const kept = new Map(), keptAlone = new Map(), KEEP = 30;
+  // The guides one day is planned from: its own place's and those of places sharing a sight with it (planned together).
+  // A day planned alone needs no other guide, so the app copies no other.
+  E.citiesFor = (bucket, i) => {
+    const all = bucket.cities || {}, own = ((bucket.days || [])[i] || {}).city; if (own == null || !all[own]) return all;
+    const idsOf = c => [].concat(c.sites || [], c.farther || []).map(x => String(x.id)), mine = new Set(idsOf(all[own])), keep = { [own]: all[own] };
+    for (let grew = true; grew;) { grew = false;
+      for (const [k, c] of Object.entries(all)) if (!keep[k] && idsOf(c).some(id => mine.has(id))) { keep[k] = c; idsOf(c).forEach(id => mine.add(id)); grew = true; } }
+    return keep;
+  };
   E.planTrip = bucket => {
     const days = bucket.days || [], cities = bucket.cities || {}, out = new Array(days.length).fill(null);
     const ids = key => { const c = cities[key] || {}; return (c.sites || []).concat(c.farther || []).map(x => String(x.id)); };
@@ -3386,20 +3399,22 @@ if (typeof module !== "undefined") module.exports = KEngine;
     const groups = new Map(); days.forEach((d, i) => { const g = top(d.city); if (!groups.has(g)) groups.set(g, []); groups.get(g).push(i); });
     const lines = bucket.transit && bucket.transit.length ? E.linesKey(bucket.transit) : "";
     for (const idx of groups.values()) {
+      if (days.some(d => d.alone) && !idx.some(i => days[i].alone)) continue;
       const gk = [...new Set(idx.map(i => days[i].city))], sub = {};
       for (const k in bucket) if (k !== "days" && k !== "cities" && k !== "answers" && k !== "transit" && k !== "placeNotes") sub[k] = bucket[k];
       sub.days = idx.map(i => days[i].i != null ? days[i] : Object.assign({}, days[i], { i }));
       sub.cities = {}; gk.forEach(k => { if (cities[k]) sub.cities[k] = cities[k]; });
       sub.placeNotes = (bucket.placeNotes || []).filter(n => idx.some(i => n.day === (days[i].i != null ? days[i].i : i)));
       const sig = JSON.stringify(sub) + "|" + lines;
-      let got = kept.get(sig);
-      if (got && got.asked.every(([a, b, was]) => JSON.stringify(bucket.answers ? bucket.answers(a, b) : null) === was)) { kept.delete(sig); kept.set(sig, got); }
+      const store = idx.some(i => days[i].alone) ? keptAlone : kept;
+      let got = store.get(sig);
+      if (got && got.asked.every(([a, b, was]) => JSON.stringify(bucket.answers ? bucket.answers(a, b) : null) === was)) { store.delete(sig); store.set(sig, got); }
       else {
         const asked = [];
         if (bucket.answers) sub.answers = (a, b) => { const r = bucket.answers(a, b); asked.push([a, b, JSON.stringify(r)]); return r; };
         if (bucket.transit) sub.transit = bucket.transit;
         const plans = planAll(sub); plans.forEach((p, k) => { if (p) p.i = idx[k]; });
-        got = { plans, asked }; kept.set(sig, got); if (kept.size > KEEP) kept.delete(kept.keys().next().value);
+        got = { plans, asked }; store.set(sig, got); if (store.size > KEEP) store.delete(store.keys().next().value);
       }
       idx.forEach((i, k) => { out[i] = got.plans[k]; });
     }
@@ -13004,7 +13019,7 @@ function fitTrial(d, sel, t, fast) {
   // counts them), so a check plans the day once instead of twice. The won't-fit box and its fixes plan in full.
   const keep = { selected: d.selected, hours: d.hours, startTime: d.startTime, fillTime: d.fillTime };
   d.selected = sel; if (fast) d.fillTime = false; if (t && t.hours != null) d.hours = t.hours; if (t && t.startTime) d.startTime = t.startTime; forget0(d);
-  try { const p = buildPlan(d), m = meterCalc(p, d); return { p, m }; }
+  try { const p = fast && window.__kairouteAlone ? window.__kairouteAlone(d, () => buildPlanRaw(d)) : buildPlan(d), m = meterCalc(p, d); return { p, m }; }
   finally { Object.assign(d, keep); if (keep.fillTime === undefined) delete d.fillTime; forget0(d); }
 }
 // The same test as the planner's (E.roomFor): a day left with no time for lunch has no room for this sight either.
@@ -13325,6 +13340,8 @@ function fitRefine() {
   // at least one), stops early when the traveler is touching the screen, then lets the browser respond first.
   const t0 = performance.now(), pend = () => { try { return !!(navigator.scheduling && navigator.scheduling.isInputPending && navigator.scheduling.isInputPending()); } catch (e) { return false; } };
   const back = viewSpot(); // cards redrawn above keep what's on screen in place
+  // Each card is weighed against the day planned the same quick way (the day on its own), so only the sight makes the difference.
+  let base1 = null; const baseNow = () => base1 || (base1 = (fitTrial(d, (d.selected || []).slice(), null, true).p) || ctx.plan);
   try { while (fitQueue.length) {
     if (performance.now() - t0 > 10 || (performance.now() > t0 && pend())) break;
     const id = fitQueue.shift();
@@ -13334,7 +13351,7 @@ function fitRefine() {
     let ok = false; if (s && !fitNever(ctx.plan, d, s)) {
       // A sight planned on another day is tried as a pick moves it: off that day, onto this one (as addPick does).
       const from = plannedElsewhere(d)[id], fromSel = from && from.selected; if (from) from.selected = fromSel.filter(x => x !== id);
-      let r; try { r = fitTrial(d, [...d.selected, id], null, true); } finally { if (from) from.selected = fromSel; } ok = fitsAll(r) && keepsDay(r.p, ctx.plan) && onPlan(r.p, id); if (ok && r.p && ctx.plan && !ctx.plan.error) fitMemo.add.set(id, Math.max(0, Math.round(r.p.end - ctx.plan.end))); }
+      let r; try { r = fitTrial(d, [...d.selected, id], null, true); } finally { if (from) from.selected = fromSel; } const b1 = baseNow(); ok = fitsAll(r) && keepsDay(r.p, b1) && onPlan(r.p, id); if (ok && r.p && b1 && !b1.error) fitMemo.add.set(id, Math.max(0, Math.round(r.p.end - b1.end))); }
     fitMemo.res.set(id, ok);
     const el = document.querySelector(`#view [data-card="${CSS.escape(id)}"]`);
     if (el && s && !d.selected.includes(id)) el.outerHTML = siteCard(s, d, ctx.plan, ctx.near);
@@ -18271,8 +18288,15 @@ function sightTags(city, s) {
 }
 const wishIds = (d, city) => { try { return city && typeof wantIds === "function" ? wantIds(d, city) : []; } catch (e) { return []; } };
 const bucketCityMemo = new Map();
+// A guide's own fingerprint is worked out once until something could have changed it: an answer arrived (dataGen) or the
+// traveler changed something (planGen). The Sights list's quick fit checks build the bucket many times in between.
+const cityHashMemo = new WeakMap();
+function cityHashOf(city) {
+  const m = cityHashMemo.get(city); if (m && m.g === dataGen && m.pg === planGen) return m.h;
+  const h = strHash(JSON.stringify(city)); cityHashMemo.set(city, { g: dataGen, pg: planGen, h }); return h;
+}
 function cityMemoOf(city, ck, ints) {
-  const sig = strHash(JSON.stringify(city)) + "|" + ints.join(",") + "|" + JSON.stringify(P());
+  const sig = cityHashOf(city) + "|" + ints.join(",") + "|" + JSON.stringify(P());
   let m = bucketCityMemo.get(ck); if (!m || m.sig !== sig) { m = { sig, sites: null, farther: null, dates: new Map() }; bucketCityMemo.set(ck, m); }
   return m;
 }
@@ -18397,7 +18421,7 @@ if (typeof window !== "undefined" && window.ENGINE2 && window.KEngine) (function
   const askRides = ep => { (ep && ep.items || []).forEach(x => { if (x.t === "ride" && x.from && x.to && x.mode !== "walk" && x.mode !== "boat" && x.mode !== "lift") { try { transitFor(x.from, x.to); } catch (e) {} } }); };
   const answerSig = (a, b) => JSON.stringify((peek(a, b) || []).map(o => [rideId(o), o.min, o.label]));
   // The whole trip planned once per change (the traveler's trip, an answer arriving, the guides, the date).
-  const recent = new Map();
+  const recent = new Map(), recentAlone = new Map(); // the quick checks' plans kept apart (see alonePlans)
   const stat = { calls: 0, keyMs: 0, bucketMs: 0, checkMs: 0, used: 0, planned: 0 };
   window.__kairouteEngine2Stat = () => Object.assign({}, stat, { used: memo.used ? memo.used.size : 0 });
   // Every sight the engine may plan is one the traveler can see and tick: the sights the places files add (the travel
@@ -18414,7 +18438,25 @@ if (typeof window !== "undefined" && window.ENGINE2 && window.KEngine) (function
       if (addS.length) city.sites = (city.sites || []).concat(addS.map(s => app(s, false)));
       if (addF.length) city.farther = (city.farther || []).concat(addF.map(s => app(s, true))); });
   }
+  // A quick "does it fit?" check from the Sights list plans the day being checked on its own (the other days of its place
+  // still decide which picks move where, but are not planned): planning every other day of the place again for each card made the list keep
+  // a phone busy for half a minute after a tick (Nov 20 sweep, Madrid). Only for the list's marks; a tick plans in full.
+  let alone = null;
+  window.__kairouteAlone = (d, fn) => { const was = alone; alone = d; try { return fn(); } finally { alone = was; } };
+  function alonePlans() {
+    const ai = trip.days.indexOf(alone), k = keyNow() + "|alone:" + ai, m = recentAlone.get(k); if (m) { recentAlone.delete(k); recentAlone.set(k, m); return m; }
+    let bucket = engineBucket(false);
+    // Only the guides of the day's own place (and places sharing a sight with it) are needed: the trip's other places
+    // aren't planned, so they aren't copied either.
+    bucket.cities = E.citiesFor(bucket, ai);
+    if (window.PLACES2) { bucket = E.applyPlaces(bucket, window.PLACES2); guideFromPlaces(bucket); }
+    bucket.days = bucket.days.map((x, i) => i === ai ? Object.assign({}, x, { alone: true }) : x);
+    bucket.answers = (a, b) => answerOf(a, b);
+    let plans; try { plans = E.planTrip(bucket); } catch (e) { console.warn("Beta 2 engine", e); plans = []; }
+    const mm = { k, plans, bucket, used: new Map() }; recentAlone.set(k, mm); if (recentAlone.size > 40) recentAlone.delete(recentAlone.keys().next().value); return mm;
+  }
   function tripPlans() {
+    if (alone && trip.days.includes(alone)) return alonePlans();
     stat.calls++; let t0 = performance.now();
     const k = keyNow(); stat.keyMs += performance.now() - t0;
     if (memo.k === k && memo.plans) return memo;
@@ -18524,4 +18566,4 @@ render();
 
 </script>
 <script>if ("serviceWorker" in navigator) addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));</script>
-<script>(function(){var B="01ee1d2-1795149116";function ep(v){return +String(v).split("-").pop()||0}function busy(){return document.body&&document.body.classList.contains("touring-on")}function chk(){if(location.protocol!=="https:"||document.visibilityState!=="visible")return;fetch("version.txt",{cache:"no-store"}).then(function(r){return r.ok?r.text():""}).then(function(t){t=t.trim();if(!t||t===B||ep(t)<=ep(B)||busy())return;var k="kairoute.reloadedTo",s="";try{s=sessionStorage.getItem(k)||"";sessionStorage.setItem(k,t)}catch(e){}if(s===t){var u=new URL(location.href);if(u.searchParams.get("v")===t)return;u.searchParams.set("v",t);location.replace(u.href)}else location.reload()}).catch(function(){})}addEventListener("load",chk);addEventListener("pageshow",function(e){if(e.persisted)chk()});addEventListener("focus",chk);document.addEventListener("visibilitychange",chk);setInterval(chk,300000);if(navigator.serviceWorker)navigator.serviceWorker.addEventListener("message",function(e){if(e.data&&e.data.type==="kairoute-sw"){try{e.source.postMessage({type:"kairoute-alive"})}catch(x){}chk()}})})();</script>
+<script>(function(){var B="5133e5b-1795154095";function ep(v){return +String(v).split("-").pop()||0}function busy(){return document.body&&document.body.classList.contains("touring-on")}function chk(){if(location.protocol!=="https:"||document.visibilityState!=="visible")return;fetch("version.txt",{cache:"no-store"}).then(function(r){return r.ok?r.text():""}).then(function(t){t=t.trim();if(!t||t===B||ep(t)<=ep(B)||busy())return;var k="kairoute.reloadedTo",s="";try{s=sessionStorage.getItem(k)||"";sessionStorage.setItem(k,t)}catch(e){}if(s===t){var u=new URL(location.href);if(u.searchParams.get("v")===t)return;u.searchParams.set("v",t);location.replace(u.href)}else location.reload()}).catch(function(){})}addEventListener("load",chk);addEventListener("pageshow",function(e){if(e.persisted)chk()});addEventListener("focus",chk);document.addEventListener("visibilitychange",chk);setInterval(chk,300000);if(navigator.serviceWorker)navigator.serviceWorker.addEventListener("message",function(e){if(e.data&&e.data.type==="kairoute-sw"){try{e.source.postMessage({type:"kairoute-alive"})}catch(x){}chk()}})})();</script>
