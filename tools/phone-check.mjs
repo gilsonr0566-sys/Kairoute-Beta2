@@ -12,12 +12,14 @@ for (const run of runs) {
   const browser = await chromium.launch({ args: ['--autoplay-policy=no-user-gesture-required'] });
   const ctx = await browser.newContext({ ...devices['Pixel 7'] });
   const page = await ctx.newPage();
-  page.on('console', m => { if (m.type() === 'error') console.log('  console:', m.text().slice(0, 200)); });
+  page.on('console', m => console.log('  console:', m.type(), m.text().slice(0, 300)));
+  page.on('requestfailed', r => console.log('  failed:', r.url().slice(0, 150), r.failure()?.errorText));
   page.on('pageerror', e => console.log('  pageerror:', e.message));
   const cdp = await ctx.newCDPSession(page);
   await page.goto(URL + run.q, { waitUntil: 'load' });
   await page.waitForTimeout(4000); // speed boost reloads the page once
-  await page.waitForFunction(() => window.__voiceReady === true, null, { timeout: 60000 });
+  try { await page.waitForFunction(() => window.__voiceReady === true, null, { timeout: 60000 }); }
+  catch (e) { console.log('NOT READY. url=', page.url(), '\n', (await page.content()).slice(0, 1500)); throw e; }
   await cdp.send('Emulation.setCPUThrottlingRate', { rate: run.throttle });
   const info = await page.evaluate(() => ({ isolated: self.crossOriginIsolated, cores: navigator.hardwareConcurrency }));
   const wait = (key, n) => page.waitForFunction(([k, n]) => window.__voiceTest[k].length >= n || window.__voiceTest.errors.length, [key, n], { timeout: 900000 });
