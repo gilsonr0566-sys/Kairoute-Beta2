@@ -1822,6 +1822,7 @@ if (typeof module !== "undefined") module.exports = KEngine;
     for (const x of list) { const e = endsOf(x); if (!e || !e[0] || !e[1]) continue; const off = Math.max(E.hav(e[0], a), E.hav(e[1], b)); if (off <= tol && (!best || off < best.off)) best = { x, A: e[0], B: e[1], off }; }
     return best; };
   E.nearGap = (a, b, n, byRoad) => n ? E.gapMin(E.hav(a, n.A), byRoad) + E.gapMin(E.hav(b, n.B), byRoad) : 0;
+  const roadMemos = new Map();
   E.makeTravel = (prefs, legModes, legs, lines, answers, piers) => {
     const walk = (prefs && prefs.walk) || "medium", lim = WALK_LIMIT[walk] || WALK_LIMIT.medium, speed = walk === "low" ? 3.6 : 4.5, modes = legModes || {}, memo = new Map(), memoEnd = new Map();
     const walkMinOf = km => Math.max(1, Math.round(km * 1.3 / speed * 60));
@@ -1834,7 +1835,14 @@ if (typeof module !== "undefined") module.exports = KEngine;
       return best ? { near: best.x.m } : undefined; };
     // A road time from the map (the places files) holds for a ride close enough to it, the gaps added by road (E.nearRide).
     const roadLegs = legs ? Object.values(legs).filter(l => l && l.road && l.a && l.b) : [];
-    const roadNear = (a, b) => { const n = E.nearRide(a, b, roadLegs, l => [l.a, l.b]); return n && Object.assign({}, n.x, { min: n.x.min + E.nearGap(a, b, n, true) }); };
+    // The answer depends only on the road times and the two points, so it is kept across plans for the same road times
+    // (the Sights list plans the day again for every sight it checks: measuring every ride against every road time each
+    // time made a tick on a day of day trips take seconds on a phone, Nov 20 sweep).
+    const roadSig = roadLegs.map(l => l.a.lat + "," + l.a.lng + ">" + l.b.lat + "," + l.b.lng + "=" + l.min).join("|");
+    let roadMemo = roadMemos.get(roadSig); if (!roadMemo) { if (roadMemos.size > 20) roadMemos.clear(); roadMemos.set(roadSig, roadMemo = new Map()); }
+    const roadNear = (a, b) => { const key = a.lat + "," + a.lng + ">" + b.lat + "," + b.lng; if (roadMemo.has(key)) { const r = roadMemo.get(key); return r && Object.assign({}, r); }
+      const n = E.nearRide(a, b, roadLegs, l => [l.a, l.b]), r = n && Object.assign({}, n.x, { min: n.x.min + E.nearGap(a, b, n, true) });
+      if (roadMemo.size > 200000) roadMemo.clear(); roadMemo.set(key, r && Object.freeze(Object.assign({}, r))); return r; };
     function estimate(a, b) {
       // A place with no position on the map is never a ride of no time (a 0-minute walk made a day look as if it fit): the
       // ride is a taxi of E.UNKNOWN_RIDE minutes, said to be a guess (Nov 19 review).
@@ -2517,7 +2525,8 @@ if (typeof module !== "undefined") module.exports = KEngine;
 (function (E) {
   const L = E.MEALS[0], D = E.MEALS[1];
   E.FILL_MARGIN = 15; // a sight the app adds on its own never brings a ship, train or plane day closer than this to its deadline
-  E.eatKey = name => String(name || "").toLowerCase().normalize("NFKD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9]+/g, " ").trim();
+  const eatKeys = new Map(); // the same names are keyed again and again while a day is planned
+  E.eatKey = name => { const n = String(name || ""); let k = eatKeys.get(n); if (k === undefined) { if (eatKeys.size > 50000) eatKeys.clear(); k = n.toLowerCase().normalize("NFKD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9]+/g, " ").trim(); eatKeys.set(n, k); } return k; };
   // Penalty of a timed day: running past the end is worst, then stops reached after their last entry, then a late lunch.
   // A minute riding weighs like a minute waiting (Nov 19, Richard's day trip crossed the same stretch three times: at a tenth
   // of a wait, a long crossing was "cheaper" than a few minutes waiting for a gate to open).
@@ -9588,6 +9597,9 @@ let planKeep = false;
 function renderKeep() { const was = planKeep; planKeep = true; try { render(); } finally { planKeep = was; } }
 function render() {
   renderNo++; if (!planKeep) planGen++;
+  // A won't-fit or closed box belongs to the day it was opened on: going to another day closes it,
+  // never leaving it over that day's list (Nov 20 sweep: El Escorial's box from one Madrid day covered the next day).
+  { const box = document.querySelector(".fitbox"); if (box && box.dataset.day !== String(trip.active)) { box.remove(); if (typeof fitState !== "undefined") fitState = null; } }
   if (view !== "sites") pickFrozen = null; // coming back to the sights list sorts it afresh
   if (faithPrefsTidy()) save();
   if (tidyDests(trip)) save();
@@ -13094,6 +13106,15 @@ function fitOpen(d, id) {
   const full = fitTrial(d, target); if (!full.m || (fitsAll(full) && keepsDay(full.p, base.p) && (!id || onPlan(full.p, id)))) return true;
   let need = 0;
   if (s) { try { need = stopCost(base.p, s).min; } catch (e) {} if (!(need > 0)) need = Math.max(5, full.m.used - base.m.used); }
+  // The box opens at once with what is known (the meter, why it doesn't fit); the ways to fit it are worked out next,
+  // each a full plan of the day, and fill in a moment later (Nov 20 sweep: a day trip's box took 3.7 s on a phone).
+  const prov = { fixes: [], d, id, s, need, never: false, others: [], moves: [], dayFirst: false, canRoom: false, base: base.m, rows: [], sugg: [], drop: new Set(), times: [], loading: true };
+  fitState = prov; fitShow();
+  setTimeout(() => { if (fitState !== prov || day() !== d) return; fitFinish(d, id, s, sel0, target, base, full, need, prov); }, 30);
+  return false;
+}
+function fitFinish(d, id, s, sel0, target, base, full, need, prov) {
+  const city = cityFor(d); if (!city) return;
   const picks = allSites(city).filter(x => sel0.includes(x.id));
   const fitsWithout = ids => fitsAll(fitTrial(d, target.filter(i => !ids.includes(i))));
   const rows = picks.map(x => { const r = fitTrial(d, sel0.filter(i => i !== x.id)); return { x, frees: Math.max(0, base.m.used - (r.m ? r.m.used : base.m.used)), alone: fitsWithout([x.id]) }; });
@@ -13127,8 +13148,9 @@ function fitOpen(d, id) {
   // A swap that costs a must-see comes after other ways (a new time or another day), never first.
   const rank = f => f.kind === "shorter" ? -1 : f.kind === "swap" ? (f.must ? 3 : 0) : f.kind === "time" ? 1 : 2;
   fixes.sort((a, b) => rank(a) - rank(b));
-  fitState = { fixes, d, id, s, need, never, others, moves, dayFirst, canRoom, base: base.m, rows, sugg, drop: new Set(), times };
-  fitShow(); return false;
+  if (fitState !== prov) return; // closed, or another box opened, while the ways were worked out
+  fitState = { fixes, d, id, s, need, never, others, moves, dayFirst, canRoom, base: base.m, rows, sugg, drop: prov.drop, times };
+  fitShow();
 }
 // A sight closed on the day the traveler tried to add it to: say why, and offer, in one tap, a day of the trip here
 // when it's open and fits, or the best sight that is open today and fits instead.
@@ -13142,7 +13164,7 @@ function closedOpen(d, s) {
   let w = null; try { w = dayWindow(d, city); } catch (e) {}
   closedState = { d, s, others, alt, why: closedForDayWhy(s, d, w) };
   const old = document.querySelector(".fitbox"); if (old) old.remove();
-  document.body.insertAdjacentHTML("beforeend", `<div class="fitbox" role="dialog" aria-modal="true" aria-labelledby="fitTitle"><div class="sheet" id="fitSheet">
+  document.body.insertAdjacentHTML("beforeend", `<div class="fitbox" data-day="${trip.active}" role="dialog" aria-modal="true" aria-labelledby="fitTitle"><div class="sheet" id="fitSheet">
     <h3 id="fitTitle">${esc(s.name)} is closed on ${esc(fmtDow(d.date))}</h3>
     <p>${closedState.why ? esc(closedState.why.replace(/\.$/, "")) + ". " : ""}Kairoute never plans a sight for a day it can't be visited.</p>
     ${others.length || alt ? `<div class="fitfixes"><p class="lbl">One tap</p>${others.map((o, k) => `<button type="button" class="btn ${k ? "ghost " : ""}fixbtn" data-act="closedday" data-to="${trip.days.indexOf(o)}">Add it to ${esc(fmtDow(o.date))} ${esc(fmtDate(o.date))}, when it's open</button>`).join("")}${alt ? `<button type="button" class="btn ${others.length ? "ghost " : ""}fixbtn" data-act="closedalt">Add ${esc(alt.name)} today instead (open today)</button>` : ""}</div>` : `<p class="mparts"><b>It isn't open on any day you're here.</b></p>`}
@@ -13159,7 +13181,7 @@ function closedGo(kind, to) {
 function fitShow() {
   const old = document.querySelector(".fitbox"); if (old) old.remove();
   if (!fitState) return;
-  document.body.insertAdjacentHTML("beforeend", `<div class="fitbox" role="dialog" aria-modal="true" aria-labelledby="fitTitle"><div class="sheet" id="fitSheet">${fitHTML()}</div></div>`);
+  document.body.insertAdjacentHTML("beforeend", `<div class="fitbox" data-day="${trip.active}" role="dialog" aria-modal="true" aria-labelledby="fitTitle"><div class="sheet" id="fitSheet">${fitHTML()}</div></div>`);
   const b = document.querySelector('.fitbox [data-fitdrop], .fitbox [data-act="fitcancel"]'); if (b) b.focus({ preventScroll: true });
 }
 function fitHTML() {
@@ -13184,7 +13206,7 @@ function fitHTML() {
     </div>
     ${timesFixed(d) && !cutFix ? `<p class="fitwhy">${fixedWhy(d, !!F.s)}</p>` : ""}
     ${F.fixes.length ? `<div class="fitfixes"><p class="lbl">${F.s ? "Ways to fit it in, one tap" : "Ways to make it fit, one tap"}</p>${F.fixes.map((f, k) => `<button type="button" class="btn ${k ? "ghost " : ""}fixbtn" data-act="fitfixgo" data-k="${k}">${fixLabel(F, f)}</button>`).join("")}</div>`
-      : `<p class="mparts"><b>${F.s ? "There's no way to fit it into this day." : "Untick picks below until it fits."}</b></p>`}
+      : F.loading ? `<p class="mparts">Working out the ways to fit it in…</p>` : `<p class="mparts"><b>${F.s ? "There's no way to fit it into this day." : "Untick picks below until it fits."}</b></p>`}
     ${F.rows.length ? `<details class="fitown"${F.drop.size ? " open" : ""}><summary>Or choose what to untick yourself</summary><div class="fitlist">${F.rows.map(x => `<label class="fitrow"><input type="checkbox" data-fitdrop="${esc(x.x.id)}" ${F.drop.has(x.x.id) ? "" : "checked"}><span class="nm">${esc(x.x.name)}</span><span class="tags">${x.x.mustSee ? `<span class="tag must">Must-see</span>` : ""}<span class="tag">Frees ${x.frees >= 5 ? "about " + dur(x.frees) : "little time"}</span></span></label>`).join("")}</div></details>` : ""}
     <div class="row"><button type="button" class="btn ghost" data-act="fitcancel">${F.s ? "Keep my day as is" : "Not now"}</button><button type="button" class="btn" data-act="fitadd" ${ok ? "" : "disabled"}>${F.s ? "Add " + esc(F.s.name) : "Done"}</button></div>`;
 }
@@ -18375,6 +18397,7 @@ if (typeof window !== "undefined" && window.ENGINE2 && window.KEngine) (function
   const askRides = ep => { (ep && ep.items || []).forEach(x => { if (x.t === "ride" && x.from && x.to && x.mode !== "walk" && x.mode !== "boat" && x.mode !== "lift") { try { transitFor(x.from, x.to); } catch (e) {} } }); };
   const answerSig = (a, b) => JSON.stringify((peek(a, b) || []).map(o => [rideId(o), o.min, o.label]));
   // The whole trip planned once per change (the traveler's trip, an answer arriving, the guides, the date).
+  const recent = new Map();
   const stat = { calls: 0, keyMs: 0, bucketMs: 0, checkMs: 0, used: 0, planned: 0 };
   window.__kairouteEngine2Stat = () => Object.assign({}, stat, { used: memo.used ? memo.used.size : 0 });
   // Every sight the engine may plan is one the traveler can see and tick: the sights the places files add (the travel
@@ -18395,6 +18418,9 @@ if (typeof window !== "undefined" && window.ENGINE2 && window.KEngine) (function
     stat.calls++; let t0 = performance.now();
     const k = keyNow(); stat.keyMs += performance.now() - t0;
     if (memo.k === k && memo.plans) return memo;
+    // The last few states are kept too: the Sights list tries a sight (a different selection), then the day as it is
+    // again, then the next sight; going back to a state planned a moment ago is a lookup, not a new bucket and plan.
+    { const m = recent.get(k); if (m && m.plans) { recent.delete(k); recent.set(k, m); memo = m; stat.recent = (stat.recent || 0) + 1; return memo; } }
     // The plans depend only on what the engine is given (the bucket) and the ride answers known so far. Most changes
     // to the trip or answers arriving (weather, a photo, the day being looked at) leave both as they were: then the
     // plans stand and nothing is planned again. Only a real change of the engine's inputs replans.
@@ -18425,7 +18451,7 @@ if (typeof window !== "undefined" && window.ENGINE2 && window.KEngine) (function
       d.selected = ids; d.seedSig = seedSigOf(d); d.autoEmpty = !ids.length; synced = true;
     });
     // The bucket is the same after the sync (a seeded day sends only the traveler's own picks), so the plans stand.
-    memo = { k: synced ? keyNow() : k, ik, used, plans, bucket }; return memo;
+    memo = { k: synced ? keyNow() : k, ik, used, plans, bucket }; recent.set(memo.k, memo); if (recent.size > 8) recent.delete(recent.keys().next().value); return memo;
   }
   window.__kairouteEngine2 = () => JSON.parse(JSON.stringify(tripPlans().plans));
   // For the phone test: every pier a boat may leave from, and whether a place is reached only by boat.
@@ -18498,4 +18524,4 @@ render();
 
 </script>
 <script>if ("serviceWorker" in navigator) addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));</script>
-<script>(function(){var B="3f3dd39-1795136414";function ep(v){return +String(v).split("-").pop()||0}function busy(){return document.body&&document.body.classList.contains("touring-on")}function chk(){if(location.protocol!=="https:"||document.visibilityState!=="visible")return;fetch("version.txt",{cache:"no-store"}).then(function(r){return r.ok?r.text():""}).then(function(t){t=t.trim();if(!t||t===B||ep(t)<=ep(B)||busy())return;var k="kairoute.reloadedTo",s="";try{s=sessionStorage.getItem(k)||"";sessionStorage.setItem(k,t)}catch(e){}if(s===t){var u=new URL(location.href);if(u.searchParams.get("v")===t)return;u.searchParams.set("v",t);location.replace(u.href)}else location.reload()}).catch(function(){})}addEventListener("load",chk);addEventListener("pageshow",function(e){if(e.persisted)chk()});addEventListener("focus",chk);document.addEventListener("visibilitychange",chk);setInterval(chk,300000);if(navigator.serviceWorker)navigator.serviceWorker.addEventListener("message",function(e){if(e.data&&e.data.type==="kairoute-sw"){try{e.source.postMessage({type:"kairoute-alive"})}catch(x){}chk()}})})();</script>
+<script>(function(){var B="01ee1d2-1795149116";function ep(v){return +String(v).split("-").pop()||0}function busy(){return document.body&&document.body.classList.contains("touring-on")}function chk(){if(location.protocol!=="https:"||document.visibilityState!=="visible")return;fetch("version.txt",{cache:"no-store"}).then(function(r){return r.ok?r.text():""}).then(function(t){t=t.trim();if(!t||t===B||ep(t)<=ep(B)||busy())return;var k="kairoute.reloadedTo",s="";try{s=sessionStorage.getItem(k)||"";sessionStorage.setItem(k,t)}catch(e){}if(s===t){var u=new URL(location.href);if(u.searchParams.get("v")===t)return;u.searchParams.set("v",t);location.replace(u.href)}else location.reload()}).catch(function(){})}addEventListener("load",chk);addEventListener("pageshow",function(e){if(e.persisted)chk()});addEventListener("focus",chk);document.addEventListener("visibilitychange",chk);setInterval(chk,300000);if(navigator.serviceWorker)navigator.serviceWorker.addEventListener("message",function(e){if(e.data&&e.data.type==="kairoute-sw"){try{e.source.postMessage({type:"kairoute-alive"})}catch(x){}chk()}})})();</script>
