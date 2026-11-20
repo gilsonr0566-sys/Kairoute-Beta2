@@ -1,0 +1,324 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kairoute Voice Test</title>
+<script>
+  // Speed boost: lets the voice engine use several phone cores. Add ?nocoi to the link to switch it off.
+  window.coi = {
+    coepCredentialless: () => true,
+    shouldRegister: () => !location.search.includes('nocoi'),
+    shouldDeregister: () => location.search.includes('nocoi'),
+    quiet: true
+  };
+</script>
+<script src="coi-serviceworker.js"></script>
+<script type="importmap">
+{ "imports": { "onnxruntime-web": "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.18.0/dist/esm/ort.min.js" } }
+</script>
+<style>
+  :root {
+    --bg: #f4f7fb; --card: #ffffff; --ink: #14202e; --soft: #5a6b7d; --line: #dbe3ec;
+    --accent: #1f6fd1; --accent-ink: #ffffff; --accent-soft: #e4eefb; --good: #1e8a4c; --warn: #b5651d;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0e1520; --card: #172231; --ink: #e8eef5; --soft: #9fb0c2; --line: #2a3a4f;
+      --accent: #4c94ee; --accent-ink: #08121e; --accent-soft: #1b3150; --good: #4cc584; --warn: #e6a15c;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 17px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  main { max-width: 760px; margin: 0 auto; padding: 16px 16px 48px; }
+  h1 { font-size: 1.5rem; margin: 8px 0 4px; }
+  h2 { font-size: 1.15rem; margin: 0 0 4px; }
+  p.lead { color: var(--soft); margin: 0 0 16px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 16px; margin: 0 0 16px; }
+  .sub { color: var(--soft); font-size: .92rem; margin: 0 0 12px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0 12px; }
+  .chip { border: 1px solid var(--line); background: var(--card); color: var(--ink); border-radius: 999px; padding: 8px 14px; font-size: .95rem; cursor: pointer; }
+  .chip[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+  .chip small { opacity: .75; }
+  .row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+  button.main { background: var(--accent); color: var(--accent-ink); border: 0; border-radius: 10px; padding: 12px 18px; font-size: 1rem; font-weight: 600; cursor: pointer; min-height: 48px; }
+  button.ghost { background: var(--accent-soft); color: var(--ink); border: 0; border-radius: 10px; padding: 12px 16px; font-size: 1rem; cursor: pointer; min-height: 48px; }
+  button:disabled { opacity: .5; cursor: default; }
+  select { font-size: 1rem; padding: 10px; border-radius: 10px; border: 1px solid var(--line); background: var(--card); color: var(--ink); max-width: 100%; }
+  .bar { height: 8px; background: var(--accent-soft); border-radius: 99px; overflow: hidden; margin: 12px 0 6px; display: none; }
+  .bar > i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .2s; }
+  .status { font-size: .95rem; color: var(--soft); min-height: 1.4em; }
+  .facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; margin-top: 12px; }
+  .fact { background: var(--accent-soft); border-radius: 10px; padding: 8px 10px; }
+  .fact b { display: block; font-size: 1.1rem; }
+  .fact span { font-size: .8rem; color: var(--soft); }
+  .story { white-space: pre-wrap; font-size: .95rem; color: var(--soft); border-left: 3px solid var(--accent); padding-left: 10px; margin: 8px 0 0; }
+  details summary { cursor: pointer; color: var(--accent); font-size: .95rem; }
+  .ok { color: var(--good); } .warn { color: var(--warn); }
+  table { width: 100%; border-collapse: collapse; font-size: .9rem; }
+  td, th { text-align: left; padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Kairoute voice test</h1>
+  <p class="lead">Free voices that run inside the app, on your phone or tablet. No account, no fees, nothing sent to a server. Turn your volume up, then tap a voice and Play.</p>
+
+  <section class="card" id="kokoro">
+    <h2>1. Kokoro voices (best quality)</h2>
+    <p class="sub">The first Play downloads the voice engine once (about 92 MB, Wi-Fi recommended). After that it is kept on the device and starts in a few seconds.</p>
+    <div class="chips" id="kVoices"></div>
+    <div class="row">
+      <button class="main" id="kPlay">Play the Acropolis story</button>
+      <button class="ghost" id="kStop" disabled>Stop</button>
+    </div>
+    <div class="bar" id="kBar"><i></i></div>
+    <div class="status" id="kStatus"></div>
+    <div class="facts" id="kFacts"></div>
+    <details><summary>Read the story text</summary><p class="story" id="kText"></p></details>
+  </section>
+
+  <section class="card" id="phone">
+    <h2>2. Your phone's own voice (for comparison)</h2>
+    <p class="sub">Built into Android and iPhone. Nothing to download, but it usually sounds more robotic.</p>
+    <div class="row">
+      <select id="pVoice" aria-label="Phone voice"></select>
+      <button class="main" id="pPlay">Play with phone voice</button>
+      <button class="ghost" id="pStop">Stop</button>
+    </div>
+    <div class="status" id="pStatus"></div>
+  </section>
+
+  <section class="card" id="piper">
+    <h2>3. Other languages (Piper voices)</h2>
+    <p class="sub">Kokoro in the browser speaks English only (American and British). For other languages we test Piper, a second free engine. Each language is its own one-time download of about 60 MB.</p>
+    <div class="chips" id="lVoices"></div>
+    <div class="row">
+      <button class="main" id="lPlay">Play in this language</button>
+      <button class="ghost" id="lPhone">Same text, phone voice</button>
+      <button class="ghost" id="lStop">Stop</button>
+    </div>
+    <div class="bar" id="lBar"><i></i></div>
+    <div class="status" id="lStatus"></div>
+    <div class="facts" id="lFacts"></div>
+    <details><summary>Read the text</summary><p class="story" id="lText"></p></details>
+  </section>
+
+  <section class="card">
+    <h2>About this test</h2>
+    <table>
+      <tr><th>Speed boost</th><td id="boost">checking…</td></tr>
+      <tr><th>Kokoro</th><td>Free for business use (Apache 2.0 licence).</td></tr>
+      <tr><th>Piper voices</th><td>Each voice has its own licence. The ones here are listed as free for business use.</td></tr>
+      <tr><th>Your data</th><td>The story is turned into speech on this device. Nothing is sent anywhere.</td></tr>
+    </table>
+  </section>
+</main>
+
+<script type="module">
+const $ = (id) => document.getElementById(id);
+const results = window.__voiceTest = { kokoro: [], piper: [], errors: [] };
+$('boost').textContent = self.crossOriginIsolated ? 'On (uses several cores)' : 'Off (one core)';
+
+const STORY_EN = "Welcome to the Acropolis. You are standing on a rock that has watched over Athens for more than three thousand years. Look up at the Parthenon. It was finished in the year 438 BC, built to honour Athena, the protector of the city. The columns look perfectly straight, but they are not. Each one swells gently in the middle, a clever trick so the temple looks flawless from down below. Take a moment here. When you are ready, follow the path to your right, toward the Erechtheion and its famous stone maidens.";
+$('kText').textContent = STORY_EN;
+
+const KVOICES = [
+  { id: 'af_heart', label: 'Heart', note: 'US woman' },
+  { id: 'af_bella', label: 'Bella', note: 'US woman' },
+  { id: 'am_michael', label: 'Michael', note: 'US man' },
+  { id: 'am_fenrir', label: 'Fenrir', note: 'US man' },
+  { id: 'bf_emma', label: 'Emma', note: 'British woman' },
+  { id: 'bm_george', label: 'George', note: 'British man' },
+];
+const LANGS = [
+  { id: 'es_ES-davefx-medium', label: 'Spanish', note: 'man', lang: 'es',
+    text: "Bienvenidos a la Acrópolis. Están sobre una roca que vigila Atenas desde hace más de tres mil años. Miren el Partenón, construido en honor a Atenea, la protectora de la ciudad. Las columnas parecen rectas, pero no lo son: cada una se ensancha un poco en el centro, para que el templo se vea perfecto desde abajo." },
+  { id: 'fr_FR-siwis-medium', label: 'French', note: 'woman', lang: 'fr',
+    text: "Bienvenue sur l'Acropole. Vous êtes sur un rocher qui veille sur Athènes depuis plus de trois mille ans. Regardez le Parthénon, construit en l'honneur d'Athéna, la protectrice de la ville. Les colonnes semblent droites, mais elles ne le sont pas : chacune s'élargit légèrement au milieu, pour que le temple paraisse parfait vu d'en bas." },
+  { id: 'de_DE-thorsten-medium', label: 'German', note: 'man', lang: 'de',
+    text: "Willkommen auf der Akropolis. Sie stehen auf einem Felsen, der seit mehr als dreitausend Jahren über Athen wacht. Schauen Sie hinauf zum Parthenon, erbaut zu Ehren der Athene, der Beschützerin der Stadt. Die Säulen wirken gerade, doch sie sind es nicht: Jede ist in der Mitte leicht gewölbt, damit der Tempel von unten makellos aussieht." },
+  { id: 'en_GB-alba-medium', label: 'Scottish English', note: 'woman (Piper)', lang: 'en-GB',
+    text: STORY_EN.split('. ').slice(0, 4).join('. ') + '.' },
+];
+
+function chips(el, list, onPick) {
+  let current = list[0];
+  list.forEach((v, i) => {
+    const b = document.createElement('button');
+    b.className = 'chip'; b.type = 'button';
+    b.setAttribute('aria-pressed', i === 0 ? 'true' : 'false');
+    b.innerHTML = `${v.label} <small>${v.note}</small>`;
+    b.onclick = () => { el.querySelectorAll('.chip').forEach(c => c.setAttribute('aria-pressed', 'false')); b.setAttribute('aria-pressed', 'true'); current = v; onPick && onPick(v); };
+    el.appendChild(b);
+  });
+  return () => current;
+}
+const kVoice = chips($('kVoices'), KVOICES);
+const lVoice = chips($('lVoices'), LANGS, (v) => { $('lText').textContent = v.text; });
+$('lText').textContent = LANGS[0].text;
+
+const fmtMB = (b) => (b / 1048576).toFixed(0) + ' MB';
+const fmtS = (ms) => (ms / 1000).toFixed(1) + ' s';
+function facts(el, items) { el.innerHTML = items.map(([v, l]) => `<div class="fact"><b>${v}</b><span>${l}</span></div>`).join(''); }
+function bar(el, frac) { el.style.display = frac == null ? 'none' : 'block'; if (frac != null) el.firstElementChild.style.width = Math.round(frac * 100) + '%'; }
+
+// ---------- Audio player (plays sentences back to back) ----------
+let ctx = null, nextAt = 0, sources = [];
+function audioStart() {
+  if (!ctx) ctx = new (window.AudioContext || window.webkitAudioContext)();
+  if (ctx.state === 'suspended') ctx.resume();
+  nextAt = ctx.currentTime + 0.05;
+}
+function queue(samples, rate) {
+  const buf = ctx.createBuffer(1, samples.length, rate);
+  buf.getChannelData(0).set(samples);
+  const src = ctx.createBufferSource();
+  src.buffer = buf; src.connect(ctx.destination);
+  const at = Math.max(nextAt, ctx.currentTime + 0.02);
+  src.start(at); nextAt = at + buf.duration + 0.12; // short breath between sentences
+  sources.push(src);
+  return at;
+}
+function stopAll() { sources.forEach(s => { try { s.stop(); } catch {} }); sources = []; speechSynthesis.cancel(); }
+
+// ---------- 1. Kokoro ----------
+let tts = null, kRun = 0;
+async function loadKokoro() {
+  const t0 = performance.now();
+  const files = {};
+  const { KokoroTTS } = await import('https://cdn.jsdelivr.net/npm/kokoro-js@1.2.1/dist/kokoro.web.js');
+  tts = await KokoroTTS.from_pretrained('onnx-community/Kokoro-82M-v1.0-ONNX', {
+    dtype: 'q8', device: 'wasm',
+    progress_callback: (p) => {
+      if (p.status === 'progress' && p.total) {
+        files[p.file] = { loaded: p.loaded, total: p.total };
+        const tot = Object.values(files).reduce((a, f) => a + f.total, 0);
+        const got = Object.values(files).reduce((a, f) => a + f.loaded, 0);
+        bar($('kBar'), got / tot);
+        $('kStatus').textContent = `Downloading the voice engine (one time): ${fmtMB(got)} of ${fmtMB(tot)}`;
+      }
+    }
+  });
+  const size = Object.values(files).reduce((a, f) => a + f.total, 0);
+  return { ms: performance.now() - t0, size };
+}
+function sentences(text) { return text.match(/[^.!?]+[.!?]+/g).map(s => s.trim()); }
+
+$('kPlay').onclick = async () => {
+  const run = ++kRun; stopAll(); audioStart();
+  $('kPlay').disabled = true; $('kStop').disabled = false; $('kFacts').innerHTML = '';
+  const v = kVoice(); const tap = performance.now();
+  const r = { voice: v.id };
+  try {
+    if (!tts) {
+      $('kStatus').textContent = 'Starting the voice engine…';
+      const l = await loadKokoro();
+      r.loadMs = l.ms; r.downloadBytes = l.size;
+    }
+    bar($('kBar'), null);
+    $('kStatus').textContent = `Preparing ${v.label}'s voice…`;
+    let firstAt = null, work = 0, audioSec = 0;
+    for (const s of sentences(STORY_EN)) {
+      if (run !== kRun) return;
+      const g0 = performance.now();
+      const out = await tts.generate(s, { voice: v.id });
+      work += performance.now() - g0;
+      if (run !== kRun) return;
+      const when = queue(out.audio, out.sampling_rate);
+      audioSec += out.audio.length / out.sampling_rate;
+      if (firstAt == null) {
+        firstAt = performance.now() - tap + Math.max(0, (when - ctx.currentTime) * 1000);
+        r.firstWordMs = firstAt;
+        $('kStatus').textContent = `Speaking: ${v.label}`;
+      }
+    }
+    r.audioSec = audioSec; r.workMs = work; r.speed = audioSec / (work / 1000);
+    const keeps = r.speed >= 1;
+    facts($('kFacts'), [
+      ...(r.downloadBytes ? [[fmtMB(r.downloadBytes), 'one-time download']] : [['0 MB', 'already on device']]),
+      ...(r.loadMs ? [[fmtS(r.loadMs), 'engine ready after']] : []),
+      [fmtS(r.firstWordMs), 'until the first word'],
+      [r.speed.toFixed(1) + '×', keeps ? 'faster than it speaks' : 'slower than it speaks'],
+    ]);
+    $('kStatus').innerHTML = keeps ? `<span class="ok">Playing. Voice is made faster than it is spoken, so no gaps.</span>` : `<span class="warn">Playing. This device makes the voice slower than it speaks, so you may hear pauses.</span>`;
+    results.kokoro.push(r);
+  } catch (e) {
+    results.errors.push('kokoro: ' + (e && e.message || e));
+    $('kStatus').innerHTML = `<span class="warn">Could not start: ${e && e.message || e}</span>`;
+  } finally { $('kPlay').disabled = false; }
+};
+$('kStop').onclick = () => { kRun++; stopAll(); $('kStop').disabled = true; $('kStatus').textContent = 'Stopped.'; };
+
+// ---------- 2. Phone voice ----------
+let phoneVoices = [];
+function fillPhoneVoices() {
+  phoneVoices = speechSynthesis.getVoices();
+  const en = phoneVoices.filter(v => /^en/i.test(v.lang));
+  const list = en.length ? en : phoneVoices;
+  $('pVoice').innerHTML = list.map(v => `<option value="${phoneVoices.indexOf(v)}">${v.name} (${v.lang})</option>`).join('') || '<option>No phone voices found</option>';
+  const best = list.findIndex(v => /en[-_]US/i.test(v.lang) && /google|natural|enhanced|premium|samantha/i.test(v.name));
+  if (best >= 0) $('pVoice').selectedIndex = best;
+}
+if ('speechSynthesis' in window) { fillPhoneVoices(); speechSynthesis.onvoiceschanged = fillPhoneVoices; }
+function sayPhone(text, voice, lang, statusEl) {
+  stopAll();
+  const u = new SpeechSynthesisUtterance(text);
+  if (voice) u.voice = voice; if (lang) u.lang = lang;
+  const t0 = performance.now();
+  u.onstart = () => statusEl.textContent = `Speaking (started after ${fmtS(performance.now() - t0)})`;
+  u.onend = () => statusEl.textContent = 'Finished.';
+  u.onerror = (e) => statusEl.textContent = 'Phone voice error: ' + e.error;
+  speechSynthesis.speak(u);
+}
+$('pPlay').onclick = () => sayPhone(STORY_EN, phoneVoices[+$('pVoice').value], null, $('pStatus'));
+$('pStop').onclick = () => { stopAll(); $('pStatus').textContent = 'Stopped.'; };
+
+// ---------- 3. Piper (other languages) ----------
+let piper = null, lRun = 0;
+$('lPlay').onclick = async () => {
+  const run = ++lRun; stopAll(); audioStart();
+  const v = lVoice(); const tap = performance.now();
+  const r = { voice: v.id };
+  $('lPlay').disabled = true; $('lFacts').innerHTML = '';
+  try {
+    $('lStatus').textContent = 'Starting the language engine…';
+    if (!piper) piper = await import('https://cdn.jsdelivr.net/npm/@diffusionstudio/vits-web@1.0.3/dist/vits-web.js');
+    const stored = await piper.stored().catch(() => []);
+    if (!stored.includes(v.id)) {
+      await piper.download(v.id, (p) => {
+        if (p.total) { bar($('lBar'), p.loaded / p.total); r.downloadBytes = p.total;
+          $('lStatus').textContent = `Downloading ${v.label} (one time): ${fmtMB(p.loaded)} of ${fmtMB(p.total)}`; }
+      });
+      r.downloadMs = performance.now() - tap;
+      await new Promise(res => setTimeout(res, 300)); // let the saved copy settle
+    }
+    bar($('lBar'), null);
+    $('lStatus').textContent = `Preparing ${v.label}…`;
+    const g0 = performance.now();
+    const wav = await piper.predict({ text: v.text, voiceId: v.id });
+    const work = performance.now() - g0;
+    const ab = await ctx.decodeAudioData(await wav.arrayBuffer());
+    if (run !== lRun) return;
+    const when = queue(ab.getChannelData(0), ab.sampleRate);
+    const audioSec = ab.duration;
+    r.firstWordMs = performance.now() - tap + Math.max(0, (when - ctx.currentTime) * 1000);
+    $('lStatus').textContent = `Speaking: ${v.label}`;
+    r.audioSec = audioSec; r.workMs = work; r.speed = audioSec / (work / 1000);
+    facts($('lFacts'), [
+      ...(r.downloadBytes ? [[fmtMB(r.downloadBytes), 'one-time download']] : [['0 MB', 'already on device']]),
+      [fmtS(r.firstWordMs), 'until the first word'],
+      [r.speed.toFixed(1) + '×', r.speed >= 1 ? 'faster than it speaks' : 'slower than it speaks'],
+    ]);
+    results.piper.push(r);
+  } catch (e) {
+    results.errors.push('piper: ' + (e && e.message || e));
+    $('lStatus').innerHTML = `<span class="warn">Could not start: ${e && e.message || e}</span>`;
+  } finally { $('lPlay').disabled = false; }
+};
+$('lPhone').onclick = () => { lRun++; const v = lVoice(); const pv = phoneVoices.find(p => p.lang.toLowerCase().startsWith(v.lang.toLowerCase())); sayPhone(v.text, pv, v.lang, $('lStatus')); };
+$('lStop').onclick = () => { lRun++; stopAll(); $('lStatus').textContent = 'Stopped.'; };
+window.__voiceReady = true;
+</script>
+</body>
+</html>
