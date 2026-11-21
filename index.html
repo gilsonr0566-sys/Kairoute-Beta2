@@ -1736,7 +1736,7 @@ if (typeof module !== "undefined") module.exports = KEngine;
         if (more.length) city.sites = (city.sites || []).concat(more);
       }
       // Restaurants and cafés on the map beside the place's sights: lunch where the traveler is, never a detour back to the
-      // few the guide names (Nov 18, Corpus Christi). Kept apart as from the map (no review behind them).
+      // few the guide names (Nov 18, a small coastal city). Kept apart as from the map (no review behind them).
       if ((P.cityEats || []).length) { const have = new Set((city.restaurants || []).map(r => E.eatKey(r.name)));
         city.restaurants = (city.restaurants || []).concat(P.cityEats.filter(x => x.name && !E.notPublicEat(x) && E.readable(E.latin(x.name) || x.name) && isFinite(x.lat) && isFinite(x.lng) && !have.has(E.eatKey(x.name)))
           .map(x => ({ id: "map~" + E.eatKey(x.name).replace(/ /g, "-"), name: E.latin(x.name) || x.name, lat: x.lat, lng: x.lng,  kind: x.amenity || "restaurant", amenity: x.amenity || "restaurant", cuisine: x.cuisine || "", fromMap: true }))); }
@@ -1953,7 +1953,8 @@ if (typeof module !== "undefined") module.exports = KEngine;
         if ((want != null && String(o.id) === String(want)) || (changesOf(o) < changesOf(r) && o.min <= r.min + 10)) by.set(k, o); }
       // When to leave for each known departure of ANY answer of the kind (a train known by its own number shows once in
       // the sample; together the kind's answers say when a train runs at all): its departure less the walk to the stop.
-      const leaveOf = k => [...new Set(got.filter(o => E.lineKind(String(o.mode || o.kind || "train")) === k).flatMap(o => (Array.isArray(o.deps) ? o.deps : []).map(q => q && isFinite(q.t) ? q.t - ((o.access && o.access.min) || 0) : null)).filter(x => x != null))].sort((x, y) => x - y);
+      // The helper sends every departure of the kind with each answer (kindDeps); older answers have their own only.
+      const leaveOf = k => [...new Set(got.filter(o => E.lineKind(String(o.mode || o.kind || "train")) === k).flatMap(o => Array.isArray(o.kindDeps) && o.kindDeps.length ? o.kindDeps.map(q => q && isFinite(q.t) ? q.t - (+q.a || 0) : null) : (Array.isArray(o.deps) ? o.deps : []).map(q => q && isFinite(q.t) ? q.t - ((o.access && o.access.min) || 0) : null)).filter(x => x != null))].sort((x, y) => x - y);
       return [...by.entries()].map(([kind, o]) => ({ id: kind, kind, how: E.latin(o.label), min: Math.round(o.min), ans: o, leaveTimes: leaveOf(kind), steps: Array.isArray(o.steps) ? o.steps.map(E.latin) : [] }));
     }
     // A boat leaves from a pier and lands at one (Nov 18, Richard's map: the ferry to an island left from a cathedral and
@@ -2010,7 +2011,7 @@ if (typeof module !== "undefined") module.exports = KEngine;
         // boat keeps the rest of the timetable's time, never less than the time at the pier (Nov 19: a sailing borrowed
         // from the ride next door hid the walk to the ferry).
         if (ferryAns) { const pl = pierLeg(a, b, holder);
-          opts.push(Object.assign(ferryAns, { km: d }, pl ? { parts: pl.parts, min: Math.max(ferryAns.min, pl.min + E.PIER_MIN) } : {})); }
+          opts.push(Object.assign(ferryAns, { km: d, isle: holder === a ? "back" : "out" }, pl ? { parts: pl.parts, min: Math.max(ferryAns.min, pl.min + E.PIER_MIN) } : {})); }
         else {
           const hn = holder.travelNote || "", cross = saidMin(hn) || Math.round(d / 25 * 60) + 10, pl = pierLeg(a, b, holder);
           const word = /high.?speed|fast ferry|hydrofoil|catamaran/i.test(hn) ? "Fast ferry" : /ferry/i.test(hn) ? "Ferry" : "Boat";
@@ -2020,7 +2021,7 @@ if (typeof module !== "undefined") module.exports = KEngine;
           // out never sails before the first time the guide gives ("boats leave from about 9:00").
           const back = holder === a, pier = back ? E.PIER_BACK : E.PIER_MIN, first = back ? null : E.firstSailing(hn);
           const gIsle = pl && pl.parts.length && !pl.parts[pl.parts.length - 1].boat ? pl.parts[pl.parts.length - 1].min : 0;
-          opts.push(Object.assign({ id: "ferry", kind: "ferry", how, min: cross + pier + (pl ? pl.min : 0), km: d, cross, pier, source: saidMin(hn) ? "guide" : "estimate",
+          opts.push(Object.assign({ id: "ferry", kind: "ferry", how, min: cross + pier + (pl ? pl.min : 0), km: d, cross, pier, isle: back ? "back" : "out", source: saidMin(hn) ? "guide" : "estimate",
             steps: [word + (fromTo && fromTo.from ? " from " + fromTo.from : "") + ", about " + cross + " min crossing" + (first != null ? ", first boat about " + E.clock(first) : ""),
               back ? "No sailing times are known here: up to " + pier + " min at the pier is allowed for the next boat back. Check the timetable at the pier when you land"
                 : "Allow " + pier + " min at the pier for the ticket and the next sailing", ...(back ? [] : ["No sailing times are known here: check the timetable at the pier"])] }, pl ? { parts: pl.parts } : {}, first != null ? { first: { at: first, after: cross + gIsle } } : {}));
@@ -2107,10 +2108,10 @@ if (typeof module !== "undefined") module.exports = KEngine;
       if ((b.backToShip || b.deadline) && pick.kind !== "walk" && pick.source !== "timetable" && pick.min >= 30)
         notes.push("No timetable or live traffic confirms this ride's time: it is an estimate with " + (pick.slack || 0) + " min extra for the " + (b.backToShip ? "ship" : "connection") + ". Leave by the time shown, never later.");
       const options = opts.map(o => Object.assign({ id: o.id, kind: o.kind, mode: E.modeOfKind(o.kind), how: o.how, min: o.min, steps: o.steps || [], source: o.source },
-        o.ans ? { ans: o.ans } : {}, o.parts ? { parts: o.parts, cross: o.cross } : {}, o.slack ? { slack: o.slack } : {}, o.transitMode ? { transitMode: o.transitMode } : {}));
+        o.ans ? { ans: o.ans } : {}, o.parts ? { parts: o.parts, cross: o.cross } : {}, o.slack ? { slack: o.slack } : {}, o.transitMode ? { transitMode: o.transitMode } : {}, o.isle ? { isle: o.isle } : {}));
       const leg = Object.assign({ mode: E.modeOfKind(pick.kind), kind: pick.kind, how: pick.how, km: pick.km || d, min: pick.min, steps: pick.steps || [], choice: pick.id, options },
         pick.kind !== "walk" && pick.kind !== "taxi" && pick.kind !== "ferry" ? { transitMode: pick.transitMode || (pick.ans && pick.ans.mode) || pick.kind } : {},
-        pick.kind === "ferry" ? { cross: pick.cross, pier: pick.pier || E.PIER_MIN, timetable: pick.source === "timetable" } : {}, { source: pick.source },
+        pick.kind === "ferry" ? { cross: pick.cross, pier: pick.pier || E.PIER_MIN, timetable: pick.source === "timetable" } : {}, pick.isle ? { isle: pick.isle } : {}, { source: pick.source },
         pick.parts ? { parts: pick.parts } : {}, pick.first ? { first: pick.first } : {}, pick.ans ? { ans: pick.ans } : {}, pick.leaveTimes && pick.leaveTimes.length ? { leaveTimes: pick.leaveTimes } : {}, pick.slack ? { slack: pick.slack } : {}, pinned ? { pinned: true } : {},
         notes.length ? { note: notes.join(" ") } : {}, lost ? { lost } : {});
       if (options.length < 2) delete leg.options;
@@ -2128,7 +2129,7 @@ if (typeof module !== "undefined") module.exports = KEngine;
   // The ride as the plan lists it: every fact the screens need, from the one ride record. A walk is just "Walk", except
   // the walk to or from a ferry, which says so ("Walk to the ferry at ..."): the traveler sees where the boat leaves.
   // A timetabled ride is taken only when it runs near the time it is needed. The departures known are a sample: the
-  // trips found by three searches of the day (from about 8:00, 12:00 and 16:00, on the trip's date or the same kind of
+  // trips found by five searches of the day (from about 6:00, every three hours to 18:00, on the trip's date or the same kind of
   // day), so they are read for the kind of ride as a whole (every train answer between the two places), not one line.
   //  - On the way to a ship, train or plane (deadline): only a known departure within E.DEP_GAP minutes (or two of the
   //    line's intervals) of leaving; else another way (Round 2 re-check 5: a train back whose only known departure was
@@ -2136,7 +2137,7 @@ if (typeof module !== "undefined") module.exports = KEngine;
   //  - Otherwise, dropped only on strong evidence: nothing near the time, and nothing known from the first search's
   //    hour until two hours past it or until two hours before it is needed (re-check 3: a rest-day bus whose first
   //    departure was 5:18 pm). A sample never proves there is no later departure, so that alone never drops a ride.
-  E.DEP_GAP = 60; E.DEP_FROM = 8 * 60;
+  E.DEP_GAP = 60; E.DEP_FROM = 6 * 60;
   const leaveTimesOf = leg => { const a = leg && leg.ans; if (Array.isArray(leg && leg.leaveTimes) && leg.leaveTimes.length) return leg.leaveTimes;
     return a && Array.isArray(a.deps) ? a.deps.map(d => d && +d.t - ((a.access && a.access.min) || 0)).filter(isFinite).sort((x, y) => x - y) : []; };
   E.runsAt = (leg, at, deadline) => { const a = leg && leg.ans; if (!a || !Array.isArray(a.deps) || !a.deps.length || !isFinite(at)) return true;
@@ -2146,14 +2147,28 @@ if (typeof module !== "undefined") module.exports = KEngine;
     if (nx == null) return true;
     const S = E.DEP_FROM, emptyFromS = !ts.some(t => t >= S && t < at);
     return !(nx - Math.max(at, S) >= 120 || (emptyFromS && at - S >= 120)); };
+  // A boat on a day with a time to be back (a ship, a train or a plane) is the way back itself: nothing else crosses the
+  // water. It is planned only on a sailing a timetable confirms for the day (Nov 21 outside review, ship safety: a boat known
+  // only from the guide's words or the distance, with an hour allowed at the pier, was planned as the way back to the ship
+  // and the final check let it through). Confirmed: a timetable answer with real departures, running in the trip's month
+  // (a summer line in November is no line), with one near the time it is needed (E.runsAt's rule for the way back).
+  // Returns null when it is confirmed, else why not, in words for the traveler.
+  E.boatUnsure = (leg, at, date) => { const a = leg && leg.ans;
+    if (!a || leg.source !== "timetable") return "no sailing times are known for this boat";
+    const m = Array.isArray(a.months) && a.months.length && date ? new Date(Date.parse(String(date) + "T12:00:00Z")).getUTCMonth() + 1 : 0;
+    if (m && !a.months.includes(m)) return "this boat doesn't run in " + ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"][m - 1];
+    if (!leaveTimesOf(leg).length) return "the timetable found gives no sailing times for this day";
+    if (!E.runsAt(leg, at, true)) { const nx = E.nextDepAfter(leg, at); return nx == null ? "the timetable shows no sailing after " + E.clock(at) : "the timetable shows no sailing near " + E.clock(at) + " (the next is about " + E.clock(nx) + ")"; }
+    return null; };
+  E.nextLeave = (leg, at) => { const nx = leaveTimesOf(leg).find(t => t >= at); return nx == null ? null : nx; };
   E.nextDepAfter = (leg, at) => { const a = leg && leg.ans, nx = leaveTimesOf(leg).find(t => t >= at); return nx == null ? null : nx + ((a && a.access && a.access.min) || 0); };
   E.legAs = (leg, o, why) => { const out = Object.assign({}, leg, { mode: E.modeOfKind(o.kind), kind: o.kind, how: o.how, min: o.min, steps: o.steps || [], choice: o.id, source: o.source },
       why ? { note: (leg.note ? leg.note + " " : "") + why } : {});
-    ["ans", "leaveTimes", "transitMode", "parts", "first", "pinned", "slack", "cross", "timetable"].forEach(k => delete out[k]); if (o.slack) out.slack = o.slack; if (o.ans) out.ans = o.ans; return out; };
+    ["ans", "leaveTimes", "transitMode", "parts", "first", "pinned", "slack", "cross", "timetable", "isle"].forEach(k => delete out[k]); if (o.slack) out.slack = o.slack; if (o.ans) out.ans = o.ans; return out; };
   E.rideItem = (leg, extra) => Object.assign({ t: "ride", mode: leg.mode, kind: leg.kind || (leg.mode === "walk" ? "walk" : "taxi"), min: leg.min, km: Math.round((leg.km || 0) * 100) / 100 },
     leg.how && (leg.mode !== "walk" || leg.pierName) ? { how: leg.how } : {}, leg.options ? { options: leg.options } : {}, leg.transitMode ? { transitMode: leg.transitMode } : {},
     leg.choice ? { choice: leg.choice } : {}, leg.steps && leg.steps.length ? { steps: leg.steps } : {}, leg.ans ? { ans: leg.ans } : {}, leg.note ? { note: leg.note } : {},
-    leg.lost ? { lost: leg.lost } : {}, leg.source ? { source: leg.source } : {}, leg.guess ? { guess: true } : {}, leg.slack ? { slack: leg.slack } : {}, leg.pierName ? { pierName: leg.pierName } : {}, extra || {});
+    leg.lost ? { lost: leg.lost } : {}, leg.source ? { source: leg.source } : {}, leg.guess ? { guess: true } : {}, leg.slack ? { slack: leg.slack } : {}, leg.pierName ? { pierName: leg.pierName } : {}, leg.isle ? { isle: leg.isle } : {}, leg.unsure ? { unsure: leg.unsure } : {}, extra || {});
 })(KEngine);
 // Beta 2 engine, part 1b: public transport between two points (metro, light rail, tram, train), from the lines mapped
 // on OpenStreetMap (the places files). Every leg where a line serves both ends is offered beside walking and a taxi,
@@ -2398,10 +2413,10 @@ if (typeof module !== "undefined") module.exports = KEngine;
   E.dayWindow = (d, tr) => {
     if (d.noShore) return E.fail("At sea or staying aboard: no time ashore.", { noShore: true });
     if (d.through) return E.fail("This day's plan is on the next page, with your departure or boarding.", { through: true });
-    const L = d.lodging, P = d.point, w = { head: [], tail: [], start: NaN, endBy: NaN, buffer: 0, hard: hardEnd(d.type), notes: [] };
+    const L = d.lodging, P = d.point, w = { head: [], tail: [], start: NaN, endBy: NaN, buffer: 0, hard: hardEnd(d.type), notes: [] }; if (d.date) w.date = String(d.date);
     // A port, station or airport far from every sight of the place (a port on another island, a gate grounded to the
     // wrong town) is as good as unknown: never planned from it.
-    // A guide written as a trip out from that very place ("Rome from Civitavecchia") names it, and is far by design.
+    // A guide written as a trip out from that very place ("City from Port") names it, and is far by design.
     const GENERIC = /^(port|ports|cruise|terminal|terminals|pier|piers|harbou?r|marina|station|central|airport|international|ferry|new|old|the)$/;
     const named = String(d.placeName || "").toLowerCase(), words = String(P && P.name || "").toLowerCase().normalize("NFKD").replace(/[\u0300-\u036f]/g, "").split(/[^a-z]+/).filter(x => x.length >= 4 && !GENERIC.test(x));
     const servesFrom = words.some(x => named.normalize("NFKD").replace(/[\u0300-\u036f]/g, "").includes(x));
@@ -2878,7 +2893,7 @@ if (typeof module !== "undefined") module.exports = KEngine;
     if (ctx.lunchAt != null && !my.pick) { const k = ctx.lunchAt === "^" ? 0 : order.findIndex(s => String(s.id) === ctx.lunchAt) + 1; if (k >= 0 && (ctx.lunchAt === "^" || k > 0)) gaps.splice(0, gaps.length, k); }
     for (const k of [...new Set(gaps)].sort((a, b) => a - b)) {
       // Places near the stop before, near the stop after and halfway: each costs what it takes them out of their way
-      // (Nov 18, Corpus Christi: not back over the bridge for lunch). After the last stop: near where the day ends.
+      // (Nov 18, a city across a bay: not back over the bridge for lunch). After the last stop: near where the day ends.
       const a = pts[k], b = order[k] || (k === order.length && win.tail.length ? win.tail[0] : null);
       const mid = b && isFinite(b.lat) ? { lat: (a.lat + b.lat) / 2, lng: (a.lng + b.lng) / 2 } : null;
       const offOf = e => b && isFinite(b.lat) ? E.hav(a, e.r) + E.hav(e.r, b) - E.hav(a, b) : E.hav(a, e.r);
@@ -3104,7 +3119,7 @@ if (typeof module !== "undefined") module.exports = KEngine;
         const t = Object.assign({}, flex, { minutes: Math.min(to, flex.minutes - 15), trimmed: was });
         keep = keep.map(s => s === flex ? t : s); cur = arrange(keep, win, ctx); continue;
       }
-      const lateIds = new Set(cur.r.items.filter(x => x.late).map(x => String(x.id)));
+      const lateIds = new Set(cur.r.items.filter(x => x.late || x.noBoat).map(x => String(x.id))), noBoat = new Map(cur.r.items.filter(x => x.noBoat).map(x => [String(x.id), x.noBoat]));
       const pickFrom = why === "over" ? keep : why === "late" ? keep.filter(s => lateIds.has(String(s.id))) : keep.filter(s => !s.wish);
       const out = toDrop(keep, pickFrom.length ? pickFrom : keep, win, ctx, why);
       if (why === "over" && wanted(out)) {
@@ -3117,7 +3132,7 @@ if (typeof module !== "undefined") module.exports = KEngine;
       // opens too late to be seen before the day's end says so.
       const sd = ctx.siteDay ? ctx.siteDay(out.id) : null, opens = sd && sd.oh && sd.oh.spans && sd.oh.spans.length ? sd.oh.spans[0][0] : null;
       const tooLate = opens != null && isFinite(win.endBy) && opens + Math.min(out.minutes || 60, 60) > win.endBy;
-      dropped.push({ id: out.id, name: out.name, wish: !!out.wish, wanted: wanted(out), stop: out, why: tooLate ? "opens at " + E.clock(opens) + ", too late to see before " + E.clock(win.endBy) : why === "late" ? "would arrive after its last entry" : "didn't fit in the time" });
+      dropped.push({ id: out.id, name: out.name, wish: !!out.wish, wanted: wanted(out), stop: out, why: noBoat.has(String(out.id)) ? "is reached only by boat, and " + noBoat.get(String(out.id)) + ": on a day with a time to be back, the way back is planned only on a sailing a timetable confirms" : tooLate ? "opens at " + E.clock(opens) + ", too late to see before " + E.clock(win.endBy) : why === "late" ? "would arrive after its last entry" : "didn't fit in the time" });
     }
     // Room left after the drops: a stop given up earlier comes back when it now fits (wanted ones first, best first).
     for (const x of dropped.slice().sort((a, b) => keepRank(b.stop) - keepRank(a.stop) || (b.stop.worth || 0) - (a.stop.worth || 0) || E.byId(a.stop, b.stop))) {
@@ -3199,14 +3214,30 @@ if (typeof module !== "undefined") module.exports = KEngine;
     const go = (p, type) => {
       let leg = ride(prev, p);
       // A timetabled line with no departure near this time (E.runsAt) is never planned on: the taxi instead, said.
-      if (!E.runsAt(leg, clock, !!(p && (p.backToShip || p.deadline)))) { const t = (leg.options || []).find(o => o.kind === "taxi"), nx = E.nextDepAfter(leg, clock);
+      const deadlineRide = !!(p && (p.backToShip || p.deadline));
+      if (!E.runsAt(leg, clock, deadlineRide)) { const t = (leg.options || []).find(o => o.kind === "taxi"), nx = E.nextDepAfter(leg, clock);
         const why = "The timetable found for " + (leg.how || "this line") + " shows no departure near " + E.clock(clock) + (nx != null ? " (the next known is about " + E.clock(nx) + ")" : "") + (t ? ", so this ride is planned by taxi." : ": check another way before you go.");
         leg = t ? E.legAs(leg, t, why) : Object.assign({}, leg, { note: (leg.note ? leg.note + " " : "") + why, noRun: true }); }
+      // On a day with a time to be back, a boat is planned only on a sailing a timetable confirms (E.boatUnsure): else a
+      // taxi when the road reaches, else the place across the water isn't planned today, with the reason (never an hour
+      // allowed at the pier for a boat that may not come).
+      let unsure = null;
+      if (win.hard && leg.kind === "ferry" && (unsure = E.boatUnsure(leg, clock, win.date))) { const t = (leg.options || []).find(o => o.kind === "taxi");
+        leg = t ? E.legAs(leg, t, "The boat isn't planned on a day with a time to be back: " + unsure + ", so this ride is planned by taxi.") : Object.assign({}, leg, { unsure, noRun: true }); if (t) unsure = null; }
       const ri = E.rideItem(leg, leg.parts ? { parts: leg.parts } : null); items.push(ri); clock += leg.min; rideMin += leg.min;
       if (leg.noRun) { late++; ri.noRun = true; }
+      // The way back on a timetable (to a ship, a train or a plane, or a boat on such a day) waits for its real departure:
+      // the ride's own time holds only the usual wait, so any longer wait until the next known departure is added (Nov 21:
+      // a sailing 55 minutes off was planned as if it left at once, eating the extra time kept for delays).
+      if (!leg.noRun && leg.ans && (deadlineRide || (win.hard && leg.kind === "ferry"))) { const nx = E.nextLeave(leg, clock - leg.min);
+        const extra = nx == null ? 0 : Math.max(0, nx - (clock - leg.min) - (+leg.ans.wait || 0));
+        if (extra > 0) { clock += extra; waits += extra; ri.wait = (ri.wait || 0) + extra; ri.depWait = extra; } }
+      // The place across the water is the stop the boat serves: the one it leaves from on the way back, else the one it reaches.
+      if (unsure && leg.isle === "back") { const s = items.slice().reverse().find(x => x.t === "stop"); if (s) s.noBoat = unsure; }
       // A boat that doesn't sail before a set time (the guide's first boat): the wait at the pier is part of the day.
       if (leg.first && clock < leg.first.at + leg.first.after) { const w = leg.first.at + leg.first.after - clock; clock += w; waits += w; ri.wait = w; ri.firstBoat = leg.first.at; }
       const it = { t: type, id: p.id || null, name: p.name, min: p.minutes || 0 };
+      if (unsure && leg.isle !== "back" && type === "stop") it.noBoat = unsure;
       if (type === "stop") { const sd = siteDay ? siteDay(p.id) : null, f = E.hoursFit(sd && sd.oh, clock, p.minutes);
         if (f.wait) { clock += f.wait; waits += f.wait; it.wait = f.wait; } if (f.late > 0) { late++; it.late = f.late; }
         if (p.bonus) it.bonus = true; if (p.along) it.along = true; }
@@ -3325,6 +3356,9 @@ if (typeof module !== "undefined") module.exports = KEngine;
     plan.items.forEach((x, k) => { if (x.t !== "ride" || x.mode === "lift") return; const a = plan.items[k - 1], b = plan.items[k + 1];
       if (x.from && x.to && E.hasPos(x.from) && E.hasPos(x.to) && E.hav(x.from, x.to) > 0.05 && !(x.min > 0)) why.push("a ride with no time between " + ((a && a.name) || "two places") + " and " + ((b && b.name) || "the next"));
       if (win.hard && x.guess) why.push("a ride to or from a place not on the map, on a day with a time to be back");
+      // Where each boat's time comes from, not only how long it is (Nov 21 outside review): on such a day every boat rests
+      // on a sailing a timetable confirms.
+      if (win.hard && x.kind === "ferry" && (x.source !== "timetable" || x.noRun || x.unsure)) why.push("a boat with no sailing a timetable confirms, on a day with a time to be back");
     });
     // The way back from the day's farthest place carries its extra time, however many stops lie on it (Nov 20 review).
     const end = plan.items[plan.items.length - 1];
@@ -3427,7 +3461,7 @@ if (typeof module !== "undefined") module.exports = KEngine;
       for (const id of (d.selected || []).slice().sort()) { const s = findSite(city, id); if (!s || openOn(s, i)) continue;
         const j = days.findIndex((e, k) => k !== i && e.city === d.city && !e.locked && !e.own && openOn(s, k) && !sel[k].map(String).includes(String(id)));
         if (j < 0) continue; sel[i] = sel[i].filter(x => String(x) !== String(id)); sel[j].push(id); movedTo.set(String(id), { from: i, to: j, name: s.name }); } });
-    // A pick that stands inside an area picked for another day (the Erechtheion on the Acropolis) moves to that day: one
+    // A pick that stands inside an area picked for another day (a temple on a hilltop site) moves to that day: one
     // walk, not two trips. Never onto or off a locked day; the plan says so.
     days.forEach((d, i) => { if (d.locked || !wins[i] || wins[i].error) return; const city = guides[d.city]; if (!city) return;
       const g = E.makeGroups((city.sites || []).concat((city.farther || []).map(x => Object.assign({}, x, { far: true }))));
@@ -3593,7 +3627,7 @@ if (typeof module !== "undefined") module.exports = KEngine;
       // tastings and local specialties first.
       const outStop = fit.kept.find(k => k.far), townNear = s => (city.farther || []).filter(t => t !== s && !t.town && (t.foodDrink || []).length && isFinite(t.lat) && isFinite(s.lat) && E.hav(t, s) <= 3).sort((x, y) => E.hav(x, s) - E.hav(y, s) || E.byId(x, y))[0];
       // A sight out of town is eaten near in its own town: the one it names, else the nearest town (3 km at most) whose
-      // travel guide lists places to eat (Pompeii's ruins and the town of Pompei beside them).
+      // travel guide lists places to eat (an excavation site and the town beside it).
       const outTown = outStop && (outStop.town ? (city.farther || []).find(t => String(t.id) === String(outStop.town)) || { name: outStop.townName } : (outStop.foodDrink || []).length ? outStop : townNear(outStop) || outStop);
       const eatList = outTown ? (outTown.foodDrink || []).slice().sort((a, b) => (a.fromMap ? 1 : 0) - (b.fromMap ? 1 : 0) || (b.special ? 1 : 0) - (a.special ? 1 : 0)).slice(0, 3) : [];
       const eatThere = eatList.map(x => x.name), fromMap = eatList.length && eatList.every(x => x.fromMap);
@@ -3635,7 +3669,12 @@ if (typeof module !== "undefined") module.exports = KEngine;
         // the pier counted in its row): one leave-by for the badge, the countdown and the notes.
         if (isFinite(win.endBy)) t = Math.min(t, win.endBy - ridesBack);
         const bagsK = its.findIndex(x => x.t === "fixed" && /bags/i.test(x.name || "")), lastK = its.map(x => x.t).reduce((a, x, j) => x === "stop" || x === "meal" || x === "start" ? j : a, -1);
-        plan.leaveAt = { out: t, bags: bagsK >= 0 && its[bagsK].at != null ? its[bagsK].at : null, last: bagsK < 0 ? t : lastK >= 0 && lastK < bagsK ? (its[lastK].at || 0) + (its[lastK].t === "start" ? 0 : its[lastK].min || 0) : null };
+        // How sure the way back is (Nov 21 outside review): a plan whose way back rests on a guessed ride time never reads
+        // as sure as one a timetable or the road map confirms. "timetable": every ride on it has its timetable; "roads": the
+        // road map's time (no live traffic); "estimate": at least one ride is timed from the distance or the guide's words; "walk": on foot.
+        const rank = { timetable: 0, roads: 1, map: 2, guide: 2, estimate: 2 }, onWheels = backRides.filter(x => x.t === "ride" && x.mode !== "walk" && x.mode !== "lift");
+        const basis = onWheels.length ? ["timetable", "roads", "estimate"][onWheels.reduce((a, x) => Math.max(a, rank[x.source] != null ? rank[x.source] : 2), 0)] : "walk";
+        plan.leaveAt = { out: t, bags: bagsK >= 0 && its[bagsK].at != null ? its[bagsK].at : null, last: bagsK < 0 ? t : lastK >= 0 && lastK < bagsK ? (its[lastK].at || 0) + (its[lastK].t === "start" ? 0 : its[lastK].min || 0) : null, basis };
         const word = d.type === "embark" ? "the cruise terminal" : d.type === "port" ? "the ship" : "the " + ((E.MODES[d.mode] || E.MODES.flight).word);
         const atHotel = bagsK >= 0 && plan.leaveAt.last != null && Math.abs(plan.leaveAt.bags - plan.leaveAt.last) <= 2;
         explain.push(plan.leaveAt.bags != null && !atHotel && plan.leaveAt.last != null
@@ -3707,8 +3746,8 @@ if (typeof module !== "undefined") module.exports = KEngine;
       // traveler's own picks always stay). On a ship, train or plane day only by road, an hour at most each way, and only
       // when the day still ends 45 minutes before the time to be back: the app adds no boat there on its own (boats keep
       // their own timetable), it names it instead.
-      // How far a trip out is: from the nearest of the day's start and the stops it already has (Rome's sights from the
-      // Colosseum, not from the ship two hours away).
+      // How far a trip out is: from the nearest of the day's start and the stops it already has (a city's sights from the
+      // city's own landmark, not from the ship two hours away).
       const from0 = was.win.head[was.win.head.length - 1], near = [from0].concat(was.kept.filter(k => isFinite(k.lat)));
       const away = s => Math.min(...near.map(a => tr.min(a, s)));
       const shortRoad = s => away(s) <= 60 && !E.byBoat(s.travelNote || "");
@@ -5199,6 +5238,78 @@ const BUILTIN_CITIES = [
 
 </script>
 <script>
+// Beta 2 engine, part 0: shared helpers. Every engine file adds to one namespace, KEngine, and touches nothing else:
+// no page, no storage, no internet, no app state. The same files load in the app and in Node (tools/beta2/engine.cjs).
+var KEngine = typeof KEngine !== "undefined" ? KEngine : {};
+(function (E) {
+  const R = x => x * Math.PI / 180;
+  // Straight-line km between two places.
+  E.hav = (a, b) => { const dLa = R(b.lat - a.lat), dLo = R(b.lng - a.lng);
+    const h = Math.sin(dLa / 2) ** 2 + Math.cos(R(a.lat)) * Math.cos(R(b.lat)) * Math.sin(dLo / 2) ** 2; return 2 * 6371 * Math.asin(Math.sqrt(h)); };
+  // "09:30" -> 570. Anything else is NaN, never a guess.
+  // A clock time, never with a minus sign: past midnight reads as the next morning's time (Nov 20 review).
+  // The app may set its own clock format (24-hour or am/pm, from the traveler's setting); the engine's own text is am/pm.
+  E.clockFmt = null;
+  E.clockText = m0 => { const m = ((Math.round(m0) % 1440) + 1440) % 1440, h = Math.floor(m / 60), mm = String(m % 60).padStart(2, "0"); return (h % 12 || 12) + ":" + mm + (h >= 12 ? " pm" : " am"); };
+  E.clock = m => E.clockFmt ? E.clockFmt(m) : E.clockText(m);
+  E.toMin = t => { const m = /^(\d{1,2}):(\d{2})$/.exec(String(t || "").trim()); return m ? +m[1] * 60 + +m[2] : NaN; };
+  // The key two places share for a traveler's ride choice (the app's own pairKey, so saved choices still apply).
+  const pk = p => (+p.lat).toFixed(3) + "," + (+p.lng).toFixed(3);
+  E.pairKey = (a, b) => pk(a) + "," + pk(b);
+  // A fixed, input-order-free tie-break: by id, then name. Used wherever two choices are otherwise equal.
+  E.byId = (a, b) => String(a.id || "").localeCompare(String(b.id || "")) || String(a.name || "").localeCompare(String(b.name || ""));
+  E.TO_GO = 20;
+  // A lunch or dinner stop serves a meal: a place known for a treat (doughnuts, ice cream, pastries, chocolate, coffee)
+  // is a snack on the way, never the day's lunch or dinner. Read from what the guide says it serves, in any guide.
+  const TREAT = /\b(doughnuts?|donuts?|loukoumades|ice ?cream|gelat[oi]|dessert|pastr(y|ies)|patisserie|bakery|cakes?|chocolate|crepes?|waffles?|coffee|espresso|tea ?room|juice|smoothie|sweets?|confection|treat)\b/i;
+  const MEAL = /\b(taverna|restaurant|trattoria|osteria|bistro|brasserie|grill|meze|mezze|kitchen|dining|seafood|steak|pizza|pasta|tapas|lunch|dinner)\b/i;
+  E.mealPlace = r => { const said = r.cuisine ? String(r.cuisine) + " " + String(r.amenity || "") : [r.kind, r.amenity, r.why].filter(Boolean).join(" "); return !(TREAT.test(said) || /^(cafe|ice_cream|bakery|confectionery|pastry)$/i.test(String(r.amenity || r.kind || ""))) || MEAL.test(String(r.cuisine || "") + " " + String(r.amenity || "")); };
+  // A name in Greek or Cyrillic letters, written in Latin letters by the standard fixed rules (Greek: ELOT 743, as on
+  // Greek road and station signs; Cyrillic: the common English spelling), so a traveler reading English can read it
+  // and match it to the signs ("Ζευγολατιό" is "Zevgolatio"). Names already in Latin letters pass through as they are.
+  const GR2 = { "αι": "ai", "ει": "ei", "οι": "oi", "ου": "ou", "μπ": "b", "ντ": "nt", "γκ": "gk", "γγ": "ng", "τσ": "ts", "τζ": "tz" };
+  const GRV = { "αυ": "a", "ευ": "e", "ηυ": "i" };
+  const GR1 = { α: "a", β: "v", γ: "g", δ: "d", ε: "e", ζ: "z", η: "i", θ: "th", ι: "i", κ: "k", λ: "l", μ: "m", ν: "n", ξ: "x", ο: "o", π: "p", ρ: "r", σ: "s", ς: "s", τ: "t", υ: "y", φ: "f", χ: "ch", ψ: "ps", ω: "o" };
+  const CY = { а: "a", б: "b", в: "v", г: "g", д: "d", е: "e", ё: "yo", ж: "zh", з: "z", и: "i", й: "y", к: "k", л: "l", м: "m", н: "n", о: "o", п: "p", р: "r", с: "s", т: "t", у: "u", ф: "f", х: "kh", ц: "ts", ч: "ch", ш: "sh", щ: "shch", ъ: "", ы: "y", ь: "", э: "e", ю: "yu", я: "ya", і: "i", ї: "yi", є: "ye", ґ: "g", ј: "j", љ: "lj", њ: "nj", ћ: "c", ђ: "dj", џ: "dz" };
+  const latinMemo = new Map();
+  // A place as the traveler typed it, without what they added in brackets ("Port (City), Country" -> "Port,
+  // Country"), never a space left before the comma (Round 1: "Cruise port of Port , Country" found nothing, 6 port days
+  // lost to one text bug).
+  E.bareName = s => String(s || "").replace(/\s*\([^)]*\)\s*/g, " ").replace(/\s+([,;.])/g, "$1").replace(/,\s*,/g, ",").replace(/\s+/g, " ").replace(/^[\s,]+|[\s,]+$/g, "").trim();
+  // The place alone, without the country or region after the first comma ("City, Country" -> "City").
+  E.placeOnly = s => E.bareName(s).split(",")[0].trim();
+  // What the traveler put in brackets after a port: the place they mean to see from it ("Port (Site)" -> "Site").
+  E.bracketPlace = s => { const m = String(s || "").match(/\(([^)]+)\)/); return m ? m[1].trim() : ""; };
+  E.latin = name => {
+    const s0 = String(name == null ? "" : name); if (!/[\u0370-\u03ff\u1f00-\u1fff\u0400-\u04ff]/.test(s0)) return s0;
+    const got = latinMemo.get(s0); if (got != null) return got; const r = latinOf(s0); if (latinMemo.size < 5000) latinMemo.set(s0, r); return r;
+  };
+  const latinOf = s0 => {
+    const s = s0.normalize("NFD").replace(/[\u0300-\u036f]/g, "").normalize("NFC");
+    let out = "";
+    for (let k = 0; k < s.length;) {
+      const c = s[k], lo = c.toLowerCase(), two = (lo + (s[k + 1] || "")).toLowerCase(), up = c !== lo;
+      let r = null, n = 1;
+      if (GRV[two] != null) { const nx = (s[k + 2] || "").toLowerCase(); r = GRV[two] + (/[αεηιοωυβγδζλμνρ]/.test(nx) ? "v" : "f"); n = 2; }
+      else if (GR2[two] != null) { r = GR2[two]; n = 2; if (two === "μπ" && k > 0 && /[α-ω]/i.test(s[k - 1])) r = "mp"; }
+      else if (GR1[lo] != null) r = GR1[lo]; else if (CY[lo] != null) r = CY[lo]; else r = c;
+      if (up && r) r = r[0].toUpperCase() + r.slice(1);
+      out += r; k += n;
+    }
+    return out;
+  };
+  E.PAD_MAX = 45; // longest ride each way for a trip out added to fill a day in town // lunch on the go: bought and eaten on the way, minutes
+  // A meal starts at most this long after its last orders (Nov 20 phone check: lunch at 3:47 pm after a day trip counted as
+  // lunch). The leak report's "odd hour" is the same line.
+  E.MEAL_LATE = 60;
+  E.MEALS = Object.freeze([
+    Object.freeze({ label: "Lunch", from: 11 * 60 + 45, to: 14 * 60 + 30, len: 60, quick: 35 }),
+    Object.freeze({ label: "Dinner", from: 18 * 60 + 30, to: 21 * 60, len: 75, quick: 45 })
+  ]);
+  // An engine error is never swallowed: it names the day and the reason, and tests fail on it.
+  E.fail = (why, extra) => Object.assign({ error: why }, extra || {});
+})(KEngine);
+if (typeof module !== "undefined") module.exports = KEngine;
 (() => {
 "use strict";
 // Speed: day plans are kept and reused until something that shapes them changes (see planStore). Any answer from
@@ -5298,7 +5409,7 @@ async function freeSample(prompt, opts = {}) {
 }
 async function refreshFreeAI() {
   if (!freeAI) return;
-  try { const st = await (await fetch(freeAI.url + "/status", { cache: "no-store" })).json(); freeAI.left = st.left; freeAI.budget = st.budget; freeAI.mode = st.mode; freeAI.on = st.on !== false; } catch (e) {}
+  try { const st = await (await fetch(freeAI.url + "/status", { cache: "no-store" })).json(); freeAI.left = st.left; freeAI.budget = st.budget; freeAI.mode = st.mode; freeAI.on = st.on !== false; freeAI.caps = st.caps || null; } catch (e) {}
 }
 async function findFreeAI() {
   if (cl && cl.use) return;
@@ -7590,6 +7701,30 @@ function buildPlanForDay(d) {
 // it is off and asks it for nothing: every AI button is hidden and every background AI step is skipped. The helper's
 // free lookups (sources, maps, saved guides, routes) still work, so trips are still built and planned without it.
 const aiReady = () => !!sample && !(sample === freeSample && freeAI && freeAI.on === false);
+// What the AI can do right now, from the helper's own answer (its /status "caps"), so every button and every sentence
+// matches what really works (Nov 21 review: settings promised photos and questions that minimal mode refused, and
+// "Turn on the AI guide in Settings" pointed at a switch the traveler doesn't have). The Claude app or the traveler's
+// own key can do everything; an older helper without caps is read from its mode (minimal = trips and guides only).
+// Jobs: tripImport, cityGuide, askQuestions, photoIdentify, extras, stopScripts, liveVoice, savedVoice.
+const aiCan = job => { if (job === "savedVoice") return true; if (!sample) return false; if (sample !== freeSample) return true;
+  if (!freeAI || freeAI.on === false) return false; if (freeAI.caps) return !!freeAI.caps[job];
+  return freeAI.mode === "full" ? job !== "liveVoice" : job === "tripImport" || job === "cityGuide"; };
+// Settings' plain account of the AI guide and the voice: what works now and what is off, from aiCan only.
+const listWords = (a, w) => a.length < 2 ? (a[0] || "") : a.slice(0, -1).join(", ") + " " + w + " " + a[a.length - 1];
+function aiStatusText() {
+  const jobs = [["cityGuide", "writes guides for new cities"], ["tripImport", "reads a trip from your words or a booking photo"], ["askQuestions", "answers your questions at a stop"], ["photoIdentify", "names a sight from your photo"]];
+  const on = jobs.filter(([k]) => aiCan(k)).map(x => x[1]), off = jobs.filter(([k]) => !aiCan(k)).map(x => x[1]);
+  const left = sample === freeSample && freeAI && freeAI.budget && on.length ? ` About ${Math.round(100 * (freeAI.left || 0) / freeAI.budget)}% of today's allowance is left; it resets every evening at 6 pm Central (7 pm in summer).` : "";
+  if (!on.length) return "Off for now. You can still build any trip step by step, and every city gets a guide and day plans from travel guides, encyclopedias and maps.";
+  const who = sample === freeSample ? "Kairoute's AI" : "Claude";
+  return `On. ${who} ${listWords(on, "and")}.${off.length ? ` Not in this version yet: it ${listWords(off, "or")}.` : ""}${left}`;
+}
+function voiceStatusText() {
+  if (aiCan("liveVoice")) return "The natural voice is a lifelike AI recording of each story, made once per stop and kept, so replays are free. A few new stops a day fit in the free allowance; after that your device's best voice reads until 6 pm Central.";
+  return "Stops that have a saved Kairoute recording play it. Every other story is read by your device's most natural voice: new natural recordings aren't being made in this version.";
+}
+// Said where a feature is off: what still works, and the way to switch it on only when the traveler really has one.
+const aiOffWhy = what => `${what} ${aiReady() ? "isn't part of this version yet" : "is switched off for now"}.${cl && cl.use ? "" : aiReady() ? "" : " Settings, AI guide, has the details."}`;
 // "Change my trip": say what changed or show the new booking, and the AI rewrites the days.
 let changeImgs = [], changeText = "";
 // A cruise whose port times the traveler didn't give: the times shown are an estimate until they add their cruise
@@ -7883,7 +8018,7 @@ function useKnown(d, s) {
   if (el) (el.closest("label") || el).scrollIntoView({ block: "center" });
 }
 function addPlaceCard(d) {
-  if (!aiReady()) return `<div class="card addplace"><h3>Don't see a place you want?</h3><p class="lede">Adding any place, or more day trips, uses Claude. Turn on the AI guide in Settings to turn it on.</p></div>`;
+  if (!aiReady()) return `<div class="card addplace"><h3>Don't see a place you want?</h3><p class="lede">${esc(aiOffWhy("Adding a place the app doesn't list yet"))} Every place already in your guide can be picked under Change stops.</p></div>`;
   return `<div class="card addplace"><div><h3>Don't see a place you want?</h3><p class="lede">Name it and your guide adds it to today, with the travel time and its story.</p></div>
     ${addNote ? `<p class="banner ok" role="status">${esc(addNote)}</p>` : ""}<div class="addrow"><input id="addPlace" type="text" placeholder="e.g. Ancient Corinth" enterkeyhint="go" ${addBusy ? "disabled" : ""}><button class="btn" data-act="addplace" ${addBusy ? "disabled" : ""}>Add it</button></div>
     <div class="actions"><button class="btn ghost" data-act="moretrips" ${addBusy ? "disabled" : ""}>Show more day trips farther out</button>${addBusy ? `<span class="lede"><span class="spinner"></span> ${esc(addBusy)}</span>` : ""}</div></div>`;
@@ -9078,8 +9213,8 @@ async function askGuide(site, city, q, opts) {
   q = String(q || "").trim(); if (!q || !city) return;
   const k = site ? site.id : "day:" + (day().date || trip.active), d = day(), voice = opts && opts.voice;
   const offline = typeof navigator !== "undefined" && navigator.onLine === false;
-  if (offline || !aiReady()) {
-    if (!offline) { answers[k] = { q, text: "", error: "Turn on the AI guide in Settings to ask questions." }; renderGuideOnly(); return; }
+  if (offline || !aiReady() || !aiCan("askQuestions")) {
+    if (!offline) { answers[k] = { q, text: "", error: aiOffWhy("Asking the guide questions") }; renderGuideOnly(); return; }
     askState.pending.push({ k, siteId: site ? site.id : null, dayIdx: trip.active, q, at: Date.now() });
     answers[k] = { q, text: "", saved: true, note: "There's no internet connection right now, so I can't look that up. I've saved your question and I'll answer it as soon as you're back online." };
     askSave(); renderGuideOnly(); return;
@@ -10395,8 +10530,8 @@ function renderSettings(sec) {
   </div>
 `,
     voice: () => `
-  <div class="card"><h3>Natural voice</h3><p class="lede">${freeAI ? "The natural voice is a lifelike AI recording of each story, made once per stop and kept, so replays are free. A few new stops a day fit in the free allowance; after that your device's best voice reads until 6 pm Central." : "Your device's most natural voice reads the stories."}${natVoiceNote ? " " + esc(natVoiceNote) : ""}</p>
-    ${freeAI ? `<div class="field"><span class="lbl">Natural AI voice (English)</span>${seg("natvoice", [["on", "On"], ["off", "Device voice only"]])}</div>
+  <div class="card"><h3>Natural voice</h3><p class="lede">${esc(voiceStatusText())}${natVoiceNote ? " " + esc(natVoiceNote) : ""}</p>
+    ${freeAI ? `<div class="field"><span class="lbl">${aiCan("liveVoice") ? "Natural AI voice (English)" : "Saved natural recordings (English)"}</span>${seg("natvoice", [["on", "On"], ["off", "Device voice only"]])}</div>
     <div class="field"><span class="lbl">Guide voice</span>${seg("guide", GUIDES.map(([k, n, d]) => [k, `${n} <small>${d}</small>`]))}
       <button type="button" class="btn" data-act="voicetry">Hear this voice</button></div>
     <div class="field"><span class="lbl">Kairoute sound (warmer, clearer outdoors, even volume)</span>${seg("voicefx", [["on", "On"], ["off", "Off"]])}</div>` : ""}
@@ -10406,7 +10541,7 @@ function renderSettings(sec) {
     sync: () => syncCard(),
     group: () => groupCard(),
     ai: () => `
-  <div class="card"><h3>AI guide</h3><p class="lede">${sample === freeSample && !aiReady() ? "Off for now. You can still build any trip step by step, and every city gets a guide and day plans from travel guides, encyclopedias and maps. Spoken stories, itinerary photos and questions to the guide come back when the AI guide is turned on again." : sample === freeSample ? `On, using Kairoute's free test AI. It builds guides for any city, finds your hotel, reads itinerary photos and answers questions.${freeAI && freeAI.budget ? ` About ${Math.round(100 * (freeAI.left || 0) / freeAI.budget)}% of today's free allowance is left; it resets every evening at 6 pm Central (7 pm in summer).` : ""}` : aiReady() ? "On. Kairoute uses Claude to build city guides, find your hotel, read itinerary photos and answer your questions." : "Off right now. The built-in cities still work fully."}</p>
+  <div class="card"><h3>AI guide</h3><p class="lede">${esc(aiStatusText())}</p>
     ${cl && cl.use ? "" : `<details class="more" ${getKey() ? "open" : ""}><summary>Advanced: use your own Anthropic key</summary><div class="field" style="margin-top:10px"><label for="aikey">Anthropic API key</label><div class="ask"><input type="password" id="aikey" autocomplete="off" placeholder="${getKey() ? "Saved on this device" : "sk-ant-…"}"><button type="button" class="btn small" data-act="savekey">Save</button>${getKey() ? `<button type="button" class="btn ghost small" data-act="clearkey">Remove</button>` : ""}</div><span class="hint">Stored only on this device and sent only to Anthropic. Get one at console.anthropic.com under API keys. Usage on your key is billed to you by Anthropic.</span></div></details>`}</div>`,
     offline: () => offSettings(),
     data: () => `
@@ -10613,7 +10748,7 @@ function renderWizard() {
     <div class="row2"><div class="field"><label for="w-party">How many people?</label><input type="number" id="w-party" min="1" max="20" value="${w.party}"></div>
       <div class="field"><label for="w-lang">Guide language</label><select id="w-lang">${LANGS.map(([n]) => `<option ${w.lang === n ? "selected" : ""}>${n}</option>`).join("")}</select></div></div>
     <div class="field"><label for="w-trav">Anything else about the travelers? (optional)</label><input type="text" id="w-trav" value="${esc(w.travelers)}" placeholder="e.g. one uses a cane; kids aged 8 and 11"></div>
-    ${ready || wizSteps() ? "" : `<div class="banner warn">Building the trip uses the AI guide. Turn on the AI guide in Settings to turn it on.</div>`}`;
+    ${ready || wizSteps() ? "" : `<div class="banner warn">${esc(aiOffWhy("Reading a trip from your words or a photo"))} Build it step by step below instead.</div>`}`;
   return `${head}<div><h2>${["Where are you going?", "How do you like to explore?", "A few last details"][w.step]}</h2></div>
     ${busyBlock()}${errBlock()}
     <form class="card" id="wizForm" autocomplete="off">${body}
@@ -10991,7 +11126,7 @@ function renderTrip(d) {
         <div class="actions"><button class="btn ghost small" data-act="copytrip">Copy itinerary</button></div>
         <div id="copyBox"></div>
         ${aiReady() ? `<div class="field"><label for="f-triptext">Your trip</label><textarea id="f-triptext" placeholder="Flying into Athens on May 3 and staying 4 days at the Hotel Grande Bretagne. Then a cruise from Piraeus to Mykonos, Santorini… ending in Barcelona. 3 days in Barcelona, train to Madrid for 2 days, flying home at 4 pm.">${esc(tripText)}</textarea><span class="hint">Your guide lays out every day, with port times, flights and trains. This replaces the trip above.</span></div>
-        <div class="actions"><button class="btn" data-act="parsetrip" ${busy ? "disabled" : ""}>Build my itinerary</button></div>` : `<p class="ai-note">This uses the AI guide. Turn on the AI guide in Settings to turn it on.</p>`}
+        <div class="actions"><button class="btn" data-act="parsetrip" ${busy ? "disabled" : ""}>Build my itinerary</button></div>` : `<p class="ai-note">${esc(aiOffWhy("Reading your itinerary"))} Add the days one by one instead.</p>`}
       </details>
     </div>
     <div class="tripright pane" data-pane="form">
@@ -12009,7 +12144,7 @@ ${partsList(s, it.time)}${stopLiveNotes(it, d)}</div></div>`;
   ${checksCard(d, city, plan)}
   ${eventsCard(d, city, plan)}
   ${gxPlanCards(d, city, plan)}
-  ${aiReady() || askState.pending.length ? `<details class="more askfold"><summary>Ask your guide about today</summary>${askBlock(null, "Ask about today: what to wear, where to get water, how to get tickets…")}</details>` : ""}
+  ${aiCan("askQuestions") ? `<details class="more askfold"><summary>Ask your guide about today</summary>${askBlock(null, "Ask about today: what to wear, where to get water, how to get tickets…")}</details>` : ""}
   <details class="more goodtoknow"><summary>Getting around, costs and local words</summary>
   ${gettingAround(city, plan)}
   ${budgetCard(plan, d)}
@@ -12077,8 +12212,8 @@ ${quietOn(s) ? `<p class="banner quiet" role="note">🤫 <span><b>Quiet place.</
       ${(() => { const tr = translations[s.id + "|" + P().lang]; const need = P().lang !== "English" && city.lang !== P().lang;
         return need ? (tr ? `<div class="guidetext" id="tr-${esc(s.id)}">${tr.text ? paras(tr.text) : `<p class="ai-note"><span class="spinner"></span> Translating…</p>`}</div>${tr.error ? `<p class="ai-note">${esc(tr.error)}</p>` : ""}` : (ready ? `<div><button class="btn ghost small" data-translate="${esc(s.id)}">Read it in ${esc(P().lang)}</button></div>` : "")) : ""; })()}
       ${dp ? `<div class="guidetext" id="deep-${esc(s.id)}">${dp.text ? paras(dp.text) : `<p class="ai-note"><span class="spinner"></span> Your guide is thinking…</p>`}</div>${dp.error ? `<p class="ai-note">${esc(dp.error)}</p>` : ""}` : ""}
-      ${ready ? `<div class="actions">${!dp || dp.error ? `<button class="btn ghost small" data-deeper="${esc(s.id)}">Tell me more</button>` : ""}</div>
-      ${askBlock(s)}` : `<p class="ai-note">Turn on the AI guide in Settings to ask the guide questions and hear more.</p>`}
+      ${ready ? `<div class="actions">${aiCan("askQuestions") && (!dp || dp.error) ? `<button class="btn ghost small" data-deeper="${esc(s.id)}">Tell me more</button>` : ""}</div>
+      ${aiCan("askQuestions") ? askBlock(s) : ""}` : ""}
       ${(j => `<details class="more scmore" ${j.rating || j.note || (j.photos || []).length ? "open" : ""}><summary>Your journal${j.rating ? " · " + "★".repeat(j.rating) : ""}</summary>${journalBlock(s)}</details>`)((trip.journal || {})[jKey(s)] || {})}
     </div></div>
   </article>`;
@@ -12258,7 +12393,7 @@ ${quietOn(s) ? `<p class="banner quiet" role="note">🤫 <span><b>Quiet place.</
       ${srcNote(s)}
       ${s.photoTip ? `<p class="phototip"><b>Photo spot:</b> ${esc(s.photoTip)}</p>` : ""}
       <details class="more" id="story-${esc(s.id)}" ${quietOn(s) ? "open" : ""}><summary>Read the story</summary><div class="guidetext" style="margin-top:8px">${paras(unitText(s.guide))}</div></details>
-      ${aiReady() || askState.pending.length ? askBlock(s) : ""}
+      ${aiCan("askQuestions") ? askBlock(s) : ""}
       ${journalBlock(s)}</div>
       <div class="actions tourmain"><button class="btn bigbtn" data-act="tournext">${nxt ? "Next: " + esc(stepName(nxt)) : "Finish"}</button></div>
     </div>`;
@@ -15132,6 +15267,10 @@ function alarmTick() {
     if (sub) sub.textContent = R && st.now != null ? `${word} ${rideTxt}` : `${word}${viaTxt} From ${fromTxt}: ${legTxt}, so leave by ${fmt(st.leaveBy)}${st.early ? " (early enough from any of today's stops)" : ""}.${R ? " " + rideTxt : ""}`;
     const agent = document.getElementById("cdAgent"); if (agent) agent.hidden = !(R && (R.none || R.missed) && d.portAgent);
     if (srcEl) srcEl.textContent = `Travel time: ${st.leg.src}${st.src === "GPS" ? ", from your GPS position" : st.src === "plan" ? ", from where the plan has you now" : ""}.`;
+    // How sure the way back is, from the plan itself (the engine's leaveAt.basis: the weakest ride on it), said by the
+    // leave-by time (Nov 21 outside review: a guessed way back must never read as sure as a timetabled one).
+    const basis = st.src === "plan" && plan.engine2 && plan.engine2.leaveAt && plan.engine2.leaveAt.basis;
+    if (srcEl && basis && basis !== "walk") srcEl.textContent += basis === "timetable" ? " The way back is on a timetable." : basis === "roads" ? " The way back is timed on the road map, with no live traffic: extra time for delays is in it." : " The way back is an estimate: no timetable or road map confirms it, so extra time for delays is in it. Check the ride before you set out.";
     if (srcEl && (d.type === "port" || d.type === "embark")) srcEl.textContent += " Being on board on time is your responsibility: confirm the all-aboard time with your cruise line on the day. Ships don't wait.";
     const chip = document.getElementById("cdCard"), lbl = document.getElementById("cdLbl");
     if (st.now == null) { if (lbl) lbl.textContent = "Leave by"; if (chip) chip.classList.remove("amber", "soon", "go"); if (el) el.textContent = fmt(st.leaveBy); if (msg) msg.hidden = true; if (srcEl) srcEl.textContent += ` On ${fmtDate(d.date)} it counts down live from your GPS position, with alerts.`; }
@@ -15245,11 +15384,13 @@ async function camLookup(file) {
   cam.cands = cands; cam.noGps = !pos;
   if (!cands.length) { cam.busy = false; cam.msg = pos ? "I don't know any sights within a few hundred meters of you, so I can't say what this is." : "I need your location to see what's around you. Turn on location and try again."; camSheet(); return; }
   if (!freeAI) { cam.busy = false; cam.msg = "Photo look-up needs the internet. Here's what's nearest to you:"; camSheet(); return; }
+  // Photo matching switched off on the helper (minimal AI, or AI off): said plainly, never sent to be refused as "busy".
+  if (!aiCan("photoIdentify")) { cam.busy = false; cam.msg = "Matching a photo isn't part of this version yet. Here's what's nearest to you:"; camSheet(); return; }
   cam.msg = "Matching your photo…"; camSheet();
   try {
     const r = await fetch(`${freeAI.url}/identify`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ image: cam.img, lat: pos && pos.lat, lng: pos && pos.lng, cands: cands.map(c => ({ name: c.name, kind: c.kind, m: c.m })), dev: devId() }) });
     const j = await r.json().catch(() => null);
-    if (!r.ok || !j) { cam.msg = (j && j.error) || "The photo service is busy. Here's what's nearest to you:"; }
+    if (!r.ok || !j) { cam.msg = j && j.disabled ? "Matching a photo isn't part of this version yet. Here's what's nearest to you:" : (j && j.error) || "The photo service is busy. Here's what's nearest to you:"; }
     else { cam.pick = j.n ? cands[j.n - 1] : null; cam.sure = j.sure; cam.seen = j.seen; cam.msg = ""; }
   } catch (e) { cam.msg = "No connection right now. Here's what's nearest to you:"; }
   cam.busy = false; camSheet();
@@ -19407,4 +19548,4 @@ render();
 
 </script>
 <script>if ("serviceWorker" in navigator) addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));</script>
-<script>(function(){var B="05e7a9a-1795253051";function ep(v){return +String(v).split("-").pop()||0}function busy(){return document.body&&document.body.classList.contains("touring-on")}function chk(){if(location.protocol!=="https:"||document.visibilityState!=="visible")return;fetch("version.txt",{cache:"no-store"}).then(function(r){return r.ok?r.text():""}).then(function(t){t=t.trim();if(!t||t===B||ep(t)<=ep(B)||busy())return;var k="kairoute.reloadedTo",s="";try{s=sessionStorage.getItem(k)||"";sessionStorage.setItem(k,t)}catch(e){}if(s===t){var u=new URL(location.href);if(u.searchParams.get("v")===t)return;u.searchParams.set("v",t);location.replace(u.href)}else location.reload()}).catch(function(){})}addEventListener("load",chk);addEventListener("pageshow",function(e){if(e.persisted)chk()});addEventListener("focus",chk);document.addEventListener("visibilitychange",chk);setInterval(chk,300000);if(navigator.serviceWorker)navigator.serviceWorker.addEventListener("message",function(e){if(e.data&&e.data.type==="kairoute-sw"){try{e.source.postMessage({type:"kairoute-alive"})}catch(x){}chk()}})})();</script>
+<script>(function(){var B="f028f9b-1795282578";function ep(v){return +String(v).split("-").pop()||0}function busy(){return document.body&&document.body.classList.contains("touring-on")}function chk(){if(location.protocol!=="https:"||document.visibilityState!=="visible")return;fetch("version.txt",{cache:"no-store"}).then(function(r){return r.ok?r.text():""}).then(function(t){t=t.trim();if(!t||t===B||ep(t)<=ep(B)||busy())return;var k="kairoute.reloadedTo",s="";try{s=sessionStorage.getItem(k)||"";sessionStorage.setItem(k,t)}catch(e){}if(s===t){var u=new URL(location.href);if(u.searchParams.get("v")===t)return;u.searchParams.set("v",t);location.replace(u.href)}else location.reload()}).catch(function(){})}addEventListener("load",chk);addEventListener("pageshow",function(e){if(e.persisted)chk()});addEventListener("focus",chk);document.addEventListener("visibilitychange",chk);setInterval(chk,300000);if(navigator.serviceWorker)navigator.serviceWorker.addEventListener("message",function(e){if(e.data&&e.data.type==="kairoute-sw"){try{e.source.postMessage({type:"kairoute-alive"})}catch(x){}chk()}})})();</script>
