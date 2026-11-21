@@ -2087,6 +2087,7 @@ if (typeof module !== "undefined") module.exports = KEngine;
       const pubs = opts.filter(o => o.kind !== "walk" && o.kind !== "taxi").sort((x, y) => x.min - y.min || x.kind.localeCompare(y.kind));
       const ansPick = wantRaw != null ? opts.find(o => o.ans && String(o.ans.id) === String(wantRaw)) : null;
       let pick = ansPick || (want === "transit" ? pubs.find(o => o.kind !== "ferry") : want != null ? byKind(want) : null), lost = null;
+      const yours = !!pick && !nearOnly; // the way the traveler chose for this very ride
       if (want != null && !pick && !nearOnly) lost = want;
       // On the way to a ship, train or plane the app takes a line on its own only when a timetable answers for it, or it is a
       // metro or tram (they run every few minutes); a train or bus known only from the map stays a choice, said (Nov 20
@@ -2113,7 +2114,7 @@ if (typeof module !== "undefined") module.exports = KEngine;
         pick.kind !== "walk" && pick.kind !== "taxi" && pick.kind !== "ferry" ? { transitMode: pick.transitMode || (pick.ans && pick.ans.mode) || pick.kind } : {},
         pick.kind === "ferry" ? { cross: pick.cross, pier: pick.pier || E.PIER_MIN, timetable: pick.source === "timetable" } : {}, pick.isle ? { isle: pick.isle } : {}, { source: pick.source },
         pick.parts ? { parts: pick.parts } : {}, pick.first ? { first: pick.first } : {}, pick.ans ? { ans: pick.ans } : {}, pick.leaveTimes && pick.leaveTimes.length ? { leaveTimes: pick.leaveTimes } : {}, pick.slack ? { slack: pick.slack } : {}, pinned ? { pinned: true } : {},
-        notes.length ? { note: notes.join(" ") } : {}, lost ? { lost } : {});
+        notes.length ? { note: notes.join(" ") } : {}, lost ? { lost } : {}, yours ? { mine: true } : {});
       if (options.length < 2) delete leg.options;
       return leg;
     }
@@ -2168,7 +2169,7 @@ if (typeof module !== "undefined") module.exports = KEngine;
   E.rideItem = (leg, extra) => Object.assign({ t: "ride", mode: leg.mode, kind: leg.kind || (leg.mode === "walk" ? "walk" : "taxi"), min: leg.min, km: Math.round((leg.km || 0) * 100) / 100 },
     leg.how && (leg.mode !== "walk" || leg.pierName) ? { how: leg.how } : {}, leg.options ? { options: leg.options } : {}, leg.transitMode ? { transitMode: leg.transitMode } : {},
     leg.choice ? { choice: leg.choice } : {}, leg.steps && leg.steps.length ? { steps: leg.steps } : {}, leg.ans ? { ans: leg.ans } : {}, leg.note ? { note: leg.note } : {},
-    leg.lost ? { lost: leg.lost } : {}, leg.source ? { source: leg.source } : {}, leg.guess ? { guess: true } : {}, leg.slack ? { slack: leg.slack } : {}, leg.pierName ? { pierName: leg.pierName } : {}, leg.isle ? { isle: leg.isle } : {}, leg.unsure ? { unsure: leg.unsure } : {}, extra || {});
+    leg.lost ? { lost: leg.lost } : {}, leg.source ? { source: leg.source } : {}, leg.guess ? { guess: true } : {}, leg.slack ? { slack: leg.slack } : {}, leg.pierName ? { pierName: leg.pierName } : {}, leg.isle ? { isle: leg.isle } : {}, leg.unsure ? { unsure: leg.unsure } : {}, leg.mine ? { mine: true } : {}, leg.ownBoat ? { ownBoat: leg.ownBoat } : {}, leg.kind === "ferry" && leg.pier ? { pier: leg.pier } : {}, extra || {});
 })(KEngine);
 // Beta 2 engine, part 1b: public transport between two points (metro, light rail, tram, train), from the lines mapped
 // on OpenStreetMap (the places files). Every leg where a line serves both ends is offered beside walking and a taxi,
@@ -3222,8 +3223,16 @@ if (typeof module !== "undefined") module.exports = KEngine;
       // taxi when the road reaches, else the place across the water isn't planned today, with the reason (never an hour
       // allowed at the pier for a boat that may not come).
       let unsure = null;
-      if (win.hard && leg.kind === "ferry" && (unsure = E.boatUnsure(leg, clock, win.date))) { const t = (leg.options || []).find(o => o.kind === "taxi");
-        leg = t ? E.legAs(leg, t, "The boat isn't planned on a day with a time to be back: " + unsure + ", so this ride is planned by taxi.") : Object.assign({}, leg, { unsure, noRun: true }); if (t) unsure = null; }
+      // The traveler's own choice of the boat (the ride's choice, or a place across the water they picked) is planned all
+      // the same, said plainly, with an hour at the pier for the boat back (Richard, Nov 21: "Yes, your pick, with a
+      // warning"); the app never takes such a boat on its own.
+      const isleStop = leg.isle === "back" ? prev : p, ownBoat = !!(leg.mine || (isleStop && isleStop.wish));
+      if (win.hard && leg.kind === "ferry" && (unsure = E.boatUnsure(leg, clock, win.date))) {
+        if (ownBoat && leg.source !== "timetable" || ownBoat && /no sailing times are known/.test(unsure)) {
+          const why = "No sailing times are confirmed for this boat (" + unsure + "): it is planned because you chose it. " + (leg.isle === "back" ? "Up to an hour at the pier is allowed for the boat back; ask at the pier for the last boat back when you land, and leave for the ship by the time shown." : "Check the sailings at the pier, and the last boat back, before you go.");
+          leg = Object.assign({}, leg, { note: (leg.note ? leg.note + " " : "") + why, ownBoat: unsure }); unsure = null;
+        } else { const t = (leg.options || []).find(o => o.kind === "taxi");
+          leg = t ? E.legAs(leg, t, "The boat isn't planned on its own on a day with a time to be back: " + unsure + ", so this ride is planned by taxi. Pick the boat yourself to take it anyway.") : Object.assign({}, leg, { unsure, noRun: true }); if (t) unsure = null; } }
       const ri = E.rideItem(leg, leg.parts ? { parts: leg.parts } : null); items.push(ri); clock += leg.min; rideMin += leg.min;
       if (leg.noRun) { late++; ri.noRun = true; }
       // The way back on a timetable (to a ship, a train or a plane, or a boat on such a day) waits for its real departure:
@@ -3357,8 +3366,9 @@ if (typeof module !== "undefined") module.exports = KEngine;
       if (x.from && x.to && E.hasPos(x.from) && E.hasPos(x.to) && E.hav(x.from, x.to) > 0.05 && !(x.min > 0)) why.push("a ride with no time between " + ((a && a.name) || "two places") + " and " + ((b && b.name) || "the next"));
       if (win.hard && x.guess) why.push("a ride to or from a place not on the map, on a day with a time to be back");
       // Where each boat's time comes from, not only how long it is (Nov 21 outside review): on such a day every boat rests
-      // on a sailing a timetable confirms.
-      if (win.hard && x.kind === "ferry" && (x.source !== "timetable" || x.noRun || x.unsure)) why.push("a boat with no sailing a timetable confirms, on a day with a time to be back");
+      // on a sailing a timetable confirms, or is the traveler's own choice of boat, said, with the hour at the pier for the
+      // boat back (Richard, Nov 21).
+      if (win.hard && x.kind === "ferry" && (x.noRun || x.unsure || (x.source !== "timetable" && !(x.ownBoat && (x.isle !== "back" || (x.pier || 0) >= E.PIER_BACK))))) why.push("a boat with no sailing a timetable confirms, on a day with a time to be back");
     });
     // The way back from the day's farthest place carries its extra time, however many stops lie on it (Nov 20 review).
     const end = plan.items[plan.items.length - 1];
@@ -19548,4 +19558,4 @@ render();
 
 </script>
 <script>if ("serviceWorker" in navigator) addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));</script>
-<script>(function(){var B="f028f9b-1795282578";function ep(v){return +String(v).split("-").pop()||0}function busy(){return document.body&&document.body.classList.contains("touring-on")}function chk(){if(location.protocol!=="https:"||document.visibilityState!=="visible")return;fetch("version.txt",{cache:"no-store"}).then(function(r){return r.ok?r.text():""}).then(function(t){t=t.trim();if(!t||t===B||ep(t)<=ep(B)||busy())return;var k="kairoute.reloadedTo",s="";try{s=sessionStorage.getItem(k)||"";sessionStorage.setItem(k,t)}catch(e){}if(s===t){var u=new URL(location.href);if(u.searchParams.get("v")===t)return;u.searchParams.set("v",t);location.replace(u.href)}else location.reload()}).catch(function(){})}addEventListener("load",chk);addEventListener("pageshow",function(e){if(e.persisted)chk()});addEventListener("focus",chk);document.addEventListener("visibilitychange",chk);setInterval(chk,300000);if(navigator.serviceWorker)navigator.serviceWorker.addEventListener("message",function(e){if(e.data&&e.data.type==="kairoute-sw"){try{e.source.postMessage({type:"kairoute-alive"})}catch(x){}chk()}})})();</script>
+<script>(function(){var B="ecac048-1795285760";function ep(v){return +String(v).split("-").pop()||0}function busy(){return document.body&&document.body.classList.contains("touring-on")}function chk(){if(location.protocol!=="https:"||document.visibilityState!=="visible")return;fetch("version.txt",{cache:"no-store"}).then(function(r){return r.ok?r.text():""}).then(function(t){t=t.trim();if(!t||t===B||ep(t)<=ep(B)||busy())return;var k="kairoute.reloadedTo",s="";try{s=sessionStorage.getItem(k)||"";sessionStorage.setItem(k,t)}catch(e){}if(s===t){var u=new URL(location.href);if(u.searchParams.get("v")===t)return;u.searchParams.set("v",t);location.replace(u.href)}else location.reload()}).catch(function(){})}addEventListener("load",chk);addEventListener("pageshow",function(e){if(e.persisted)chk()});addEventListener("focus",chk);document.addEventListener("visibilitychange",chk);setInterval(chk,300000);if(navigator.serviceWorker)navigator.serviceWorker.addEventListener("message",function(e){if(e.data&&e.data.type==="kairoute-sw"){try{e.source.postMessage({type:"kairoute-alive"})}catch(x){}chk()}})})();</script>
