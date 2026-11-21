@@ -1878,6 +1878,7 @@ if (typeof module !== "undefined") module.exports = KEngine;
   E.RIDE_KINDS = Object.freeze(["walk", "metro", "tram", "train", "bus", "ferry", "taxi"]);
   E.hasPos = p => !!p && p.lat != null && p.lng != null && p.lat !== "" && p.lng !== "" && isFinite(p.lat) && isFinite(p.lng);
   E.SLOWER_THAN_WALK = 10; // most a way may be slower than a walk of up to twice the traveler's walking limit
+  E.SPARE_RUN = 60; // minutes kept for a missed change on the way to the ship, a train or a plane (one train or bus later)
   E.UNKNOWN_RIDE = 45; // minutes for a ride to or from a place not on the map: a guess, said as one
   E.modeOfKind = k => k === "walk" ? "walk" : k === "taxi" ? "ride" : k === "ferry" ? "boat" : "transit";
   // A choice saved before the kinds were named (the app kept "transit", "boat", "ride" or a timetable row's own id).
@@ -2070,7 +2071,12 @@ if (typeof module !== "undefined") module.exports = KEngine;
       }
       // Time for the ship, a train or a plane, in one place for every way: a ride of half an hour or more to it gets 30%
       // more, at least 15 minutes (a late train, traffic, a slow boat queue).
-      if (b.backToShip || b.deadline) for (const o of opts) if (o.kind !== "walk" && o.min >= 30) { o.slack = Math.max(15, Math.round(o.min * 0.3 / 5) * 5); o.min += o.slack; }
+      // A timetabled train or bus of half an hour or more with a change gets a spare one: a missed change waits for the next,
+      // so the time kept is at least one interval (its own, else E.SPARE_RUN) (Round 2: a change 2 min before back-by).
+      if (b.backToShip || b.deadline) for (const o of opts) { if (o.kind === "walk") continue;
+        if (o.min < 30) continue;
+        const spare = o.ans && o.kind !== "ferry" && changesOf(o.ans) >= 1 ? Math.max(15, +o.ans.every || E.SPARE_RUN) : 0;
+        o.slack = Math.max(15, Math.round(o.min * 0.3 / 5) * 5, spare); o.min += o.slack; }
       // The way taken: the traveler's own choice when it is offered; else a walk when it is short enough; else the
       // quickest public way unless a taxi saves a great deal; else the taxi.
       const byKind = k => opts.find(o => o.kind === k);
@@ -2324,6 +2330,7 @@ if (typeof module !== "undefined") module.exports = KEngine;
   // Where a cruise ship ties up (Round 1, Nov 20: a state ferry terminal, an old harbour for small boats, a whole port's
   // encyclopedia article placed in the old town, and a travel-guide sentence about the ferry to another country were each
   // taken for the cruise pier). A ferry terminal, an old port, a sentence or an article about the whole port is not a pier.
+  E.GATE_OUT = 25; // km: a port named apart from its city ("Port (City)") lies at least this far out of the city
   const CRUISE_NOT = /\b(ferry|ferries|marine highway|old (port|harbou?r)|vieux[- ]port|porto (antico|vecchio)|stara luka|eski liman|puerto viejo|alter hafen)\b/i;
   E.cruiseOk = c => { const n = String((c && c.name) || "").trim(); if (!n) return false;
     if (n.length > 70 || /[.!?;]\s|\d+\s*(jd|eur|usd|euros?|dollars?|hours?)\b/i.test(n) || n.split(/\s+/).length > 9) return false; // a sentence
@@ -2334,8 +2341,11 @@ if (typeof module !== "undefined") module.exports = KEngine;
   // How sure a cruise pier is: named for cruises, a mapped terminal, a pier or wharf.
   E.cruiseRank = c => (/cruise/i.test(String(c.name || "")) ? 4 : 0) + (/cruise_terminal/.test(String(c.kind || "")) ? 3 : 0) + (/terminal|berth|wharf|pier|dock|quay/i.test(String(c.name || "")) ? 1 : 0);
   E.gateOk = (kind, c) => !!c && (kind !== "cruise" || E.cruiseOk(c)) && !/^(list|lists|index|outline) of\b/i.test(String(c.name || "").trim()) && !(GATE_BAD[kind] && GATE_BAD[kind].test(String(c.name || ""))) && !(c.kind && GATE_KINDS[kind] && !GATE_KINDS[kind].test(String(c.kind)));
+  // An airport or station only the encyclopedia knows is offered only when the map knows none: a closed one keeps its
+  // article but leaves the map (Round 2: a station closed in 1941, an airport closed to passengers, were offered).
   E.gateChoices = (list, kind) => { const key = n => String(n || "").toLowerCase().normalize("NFKD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, " ").trim(), out = [];
-    for (const c of list || []) { if (!c || !c.name || !isFinite(c.lat) || !isFinite(c.lng) || E.NOT_BUILT.test(c.name + " " + (c.kind || "")) || (kind && !E.gateOk(kind, c))) continue;
+    const mapped = (kind === "station" || kind === "airport") && (list || []).some(c => c && !c.wiki && c.name && isFinite(c.lat) && E.gateOk(kind, c) && !E.NOT_BUILT.test(c.name + " " + (c.kind || "")));
+    for (const c of list || []) { if (mapped && c && c.wiki) continue; if (!c || !c.name || !isFinite(c.lat) || !isFinite(c.lng) || E.NOT_BUILT.test(c.name + " " + (c.kind || "")) || (kind && !E.gateOk(kind, c))) continue;
       if (!out.some(x => key(x.name) === key(c.name) || E.hav(x, c) <= 1)) out.push(c); }
     return out; };
   // How early to be at the station for a train to another country: ID checks inside the open-border area, passport and
@@ -3372,7 +3382,7 @@ if (typeof module !== "undefined") module.exports = KEngine;
     const guides = E.sortFar(bucket.cities || {}), days = bucket.days || [], out = new Array(days.length).fill(null);
     // Each day knows where its place's own sights are, so a gate far from all of them is caught (part 3).
     const spots = key => ((guides[key] || {}).sites || []).filter(s => isFinite(s.lat)).map(s => ({ lat: s.lat, lng: s.lng }));
-    const wins = days.map(d => (d.noShore || d.type === "sea") ? null : E.dayWindow(Object.assign({}, d, { siteSpots: spots(d.city), placeName: d.city + " " + ((guides[d.city] || {}).name || "") }), tr));
+    const wins = days.map(d => (d.noShore || d.type === "sea") ? null : E.dayWindow(Object.assign({}, d, { siteSpots: spots(d.city), placeName: d.city + " " + ((guides[d.city] || {}).name || "") + " " + (d.typed || "") }), tr));
     // A pick closed on its own day moves to another day in the same place when it's open then (never onto or off a
     // day the traveler locked, nor onto a day they made their own: a list they set, or emptied, stays theirs), and the
     // plan says so.
@@ -16142,7 +16152,12 @@ async function srcStarts(label, area, port, centre, d) {
     // A real terminal on the map ("Prince George Wharf Cruise Ship Terminal", a dock) before a shop or a bank that only
     // has "port" in its name (Nov 18, Nassau: "Banana Bay Nassau's Port Shop" was taken for the cruise port).
     const near = inReach.filter(p => !p.any).sort((a, b) => (a.fit === 0 ? 1 : 0) - (b.fit === 0 ? 1 : 0)).concat(inReach.filter(p => p.any).sort((a, b) => hav(a, centre) - hav(b, centre))); // the closest cruise pier, not a neighbour island's
-    if (k === "cruise" && gate) near.sort((a, b) => (nameMatch(port, b.name) ? 0 : 1) - (nameMatch(port, a.name) ? 0 : 1));
+    // A port named apart from the city ("Port (City)"): the pier is where the port is, the city only has the sights. The
+    // search is centred on the city, so a pier in the city itself ("Bangkok Port" for a ship at a port 2 hours away) is
+    // never taken for it (Round 2, N1): a pier that doesn't carry the port's own name counts only when it lies out of
+    // the city (E.GATE_OUT km), as a port named apart does (a pier mapped only as "Cruise Terminal"). None: asked.
+    if (k === "cruise" && gate) { const out = (typeof KEngine !== "undefined" && KEngine.GATE_OUT) || 25;
+      for (let i = near.length - 1; i >= 0; i--) if (!nameMatch(Pn, near[i].name) && !(/cruise/i.test(near[i].name) && hav(near[i], centre) > out)) near.splice(i, 1); }
     // Never a building site or a closed station; every real one kept, so a city with several is asked which (Nov 20 tester:
     // London's Paris train sent to Victoria, Paris's station a Grand Paris Express building site).
     const real = typeof KEngine !== "undefined" && KEngine.gateChoices ? KEngine.gateChoices(near, k) : near;
@@ -16150,7 +16165,9 @@ async function srcStarts(label, area, port, centre, d) {
     // Only piers the port's own name search found count (the plain "Cruise pier" search also finds a neighbour island's).
     // The order stays the one above (a real terminal first, then the closest), so the plan starts from the likeliest.
     if (k === "cruise") { if (!real.length) return null; const R = typeof KEngine !== "undefined" && KEngine.cruiseRank ? KEngine.cruiseRank : () => 0, own = real.filter(p => !p.any), top = Math.max(0, ...own.map(R));
-      const sure = own.filter(p => R(p) >= top - 1 && R(p) > 0); return sure.length >= 2 ? sure.slice(0, 3) : real[0]; }
+      // One the map is surest of: that one, never the first found (Round 2: a city's old harbour found first by the
+      // "Port of ..." search was taken over the cruise port the terminal search found).
+      const sure = own.filter(p => R(p) >= top - 1 && R(p) > 0); return sure.length >= 2 ? sure.slice(0, 3) : sure[0] || real[0]; }
     return real.length ? real.slice(0, 5) : null;
   };
   const starts = { cruise: [], airport: [], station: [], hotel: [], point: [] };
@@ -16164,7 +16181,7 @@ async function srcStarts(label, area, port, centre, d) {
   starts.point.push({ name: "Central " + A, lat: centre.lat, lng: centre.lng, note: "" });
   return starts;
 }
-if (typeof window !== "undefined") window.__kairouteSrcStarts = (label, centre) => srcStarts(label, label, label, centre, null);
+if (typeof window !== "undefined") window.__kairouteSrcStarts = (label, centre, port) => srcStarts(label, label, port || label, centre, null);
 // The traveler's own hotel, found on the map by name (OpenStreetMap through the helper), with no AI.
 async function findHotelNoAI(name, d) {
   if (!freeAI || !name) return null;
@@ -18716,10 +18733,15 @@ function renderSea(d) {
     <div class="guidemain pane" data-pane="stories">${body}</div></div>`;
 }
 
-// A leaving or boarding day with no night here: the arrival's page points to the one plan for the whole day.
+// A leaving or boarding day with no night here: the arrival's page points to the one plan for the whole day. An arrival
+// time the traveler never gave (the trip builder's guess) is never shown as theirs (Round 2, S1-6).
+function throughLede(d, n) {
+  return `${esc(MODES[d.mode] ? MODES[d.mode].label : "You")} ${d.time && !d.estimated ? "in at " + esc(d.time) : "in (the time isn't given yet)"}, then ${n.type === "embark" ? "the ship" : "your " + (MODES[n.mode] ? MODES[n.mode].label.toLowerCase() : "departure")} ${n.estimated ? "(its time isn't given yet)" : "at " + esc(n.type === "embark" ? n.allAboard : n.time)}`;
+}
+if (typeof window !== "undefined") window.__kairouteThroughLede = throughLede;
 function renderThrough(d) {
   const n = throughTo(d), k = trip.days.indexOf(n);
-  return `${dayHeading(d)}<div class="card empty"><h3>Today is one plan</h3><p class="lede">${esc(MODES[d.mode] ? MODES[d.mode].label : "You")} in at ${esc(d.time)}, then ${n.type === "embark" ? "the ship" : "your " + (MODES[n.mode] ? MODES[n.mode].label.toLowerCase() : "departure")} at ${esc(n.type === "embark" ? n.allAboard : n.time)}: the sightseeing in between, your bags and the countdown are on one page.</p>
+  return `${dayHeading(d)}<div class="card empty"><h3>Today is one plan</h3><p class="lede">${throughLede(d, n)}: the sightseeing in between, your bags and the countdown are on one page.</p>
     <button class="btn" data-voyopen="${k}:${view === "guide" || view === "sites" ? view : "plan"}">See today's plan</button></div>`;
 }
 
@@ -18960,19 +18982,25 @@ function waterCheck(city, homes) {
     if (isl) { const sIsl = isl.slice(0, stops.length), hIsl = isl.slice(stops.length), foot = {};
       // Walking routes only for the stops on another island than every start (a few per place at most).
       const cand = stops.map((s, i) => i).filter(i => sIsl[i] && !hIsl.some(h => h !== null && (h ? h.ids.some(id => sIsl[i].ids.includes(id)) : false)));
-      for (const i of cand.slice(0, 12)) { const hi = hIsl.findIndex(h => h !== null); foot[i] = hi >= 0 ? await waterFoot(starts[hi], stops[i]) : null; }
+      const hi = hIsl.findIndex(h => h !== null);
+      await Promise.all(cand.slice(0, 12).map(async i => { foot[i] = hi >= 0 ? await waterFoot(starts[hi], stops[i]) : null; }));
       Object.assign(across, waterAcross(stops, starts, sIsl, hIsl, i => foot[i] == null ? null : foot[i])); }
     const gaps = await waterRoadGaps(stops);
     // Nothing answered: ask again another time.
     if (!isl && !gaps) { setTimeout(() => { if (waterAsked.get(keyOf(city.city)) === sig) waterAsked.delete(keyOf(city.city)); }, 180000); return; }
+    const before = stops.map(s => ({ a: s.acrossWater, g: s.roadGap }));
     stops.forEach((s, i) => {
       if (isl) { if (across[s.id]) s.acrossWater = across[s.id]; else delete s.acrossWater; }
       if (gaps) { const g = gaps[i]; if (g != null && g > 150) s.roadGap = g; else if (g != null) delete s.roadGap; } });
     if (isl && gaps) city.waterSig = sig;
     // One service busy (the map turns away a burst of questions): ask the rest again in a few minutes.
     else setTimeout(() => { if (waterAsked.get(keyOf(city.city)) === sig) waterAsked.delete(keyOf(city.city)); }, 180000);
+    // The answer changes the place's own fields: plans made from the old ones are stale (the app's fetch wasn't used, so
+    // the change is counted here; Round 2: stops across the water still planned on foot after the answer came).
+    const changed = stops.some((s, i) => (s.acrossWater || null) !== (before[i].a || null) || (s.roadGap || null) !== (before[i].g || null));
+    if (changed) { try { dataGen++; } catch (e) {} }
     try { save(); } catch (e) {}
-    try { render(); } catch (e) {}
+    if (changed) try { render(); } catch (e) {}
   })();
 }
 if (typeof window !== "undefined") window.__kairouteWater = { waterIslandQuery, waterIslandsFrom, waterAcross };
@@ -19052,7 +19080,8 @@ function engineBucket(withOld) {
     const L = city ? lodgingFor(d, city) : null; let P = null; try { P = city ? dayPoint(d, city) : null; } catch (e) { P = null; }
     const thru = throughFrom(d), A = thru && city ? dayPoint(thru, city) : null;
     const sh = hh => { try { return hh ? shipToPort(d, hh) : null; } catch (e) { console.warn("engineBucket: ship time", e); return null; } };
-    const facts = { i, id: d.id, date: d.date || "", type: d.type, mode: d.mode, city: ck, noShore: noShore(d), through: !!throughTo(d),
+    const facts = { i, id: d.id, date: d.date || "", type: d.type, mode: d.mode, city: ck, typed: String(d.destination || ""), // as the traveler typed it ("Port (City), Country")
+      noShore: noShore(d), through: !!throughTo(d),
       startTime: d.startTime || "", hours: n(d.hours), time: d.time || "", tender: !!d.tender, noBags: !!d.noBags, returnToStart: d.returnToStart !== false,
       portArrive: sh(d.portArrive), allAboard: sh(d.allAboard), boardAt: typeof boardAt === "function" ? boardAt(d) : null,
       thru: thru ? { mode: thru.mode, time: thru.time || "", point: pt(A), guess: !!thru.estimated || !thru.time } : null,
@@ -19305,4 +19334,4 @@ render();
 
 </script>
 <script>if ("serviceWorker" in navigator) addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));</script>
-<script>(function(){var B="5d14162-1795221656";function ep(v){return +String(v).split("-").pop()||0}function busy(){return document.body&&document.body.classList.contains("touring-on")}function chk(){if(location.protocol!=="https:"||document.visibilityState!=="visible")return;fetch("version.txt",{cache:"no-store"}).then(function(r){return r.ok?r.text():""}).then(function(t){t=t.trim();if(!t||t===B||ep(t)<=ep(B)||busy())return;var k="kairoute.reloadedTo",s="";try{s=sessionStorage.getItem(k)||"";sessionStorage.setItem(k,t)}catch(e){}if(s===t){var u=new URL(location.href);if(u.searchParams.get("v")===t)return;u.searchParams.set("v",t);location.replace(u.href)}else location.reload()}).catch(function(){})}addEventListener("load",chk);addEventListener("pageshow",function(e){if(e.persisted)chk()});addEventListener("focus",chk);document.addEventListener("visibilitychange",chk);setInterval(chk,300000);if(navigator.serviceWorker)navigator.serviceWorker.addEventListener("message",function(e){if(e.data&&e.data.type==="kairoute-sw"){try{e.source.postMessage({type:"kairoute-alive"})}catch(x){}chk()}})})();</script>
+<script>(function(){var B="5d14162-1795226935";function ep(v){return +String(v).split("-").pop()||0}function busy(){return document.body&&document.body.classList.contains("touring-on")}function chk(){if(location.protocol!=="https:"||document.visibilityState!=="visible")return;fetch("version.txt",{cache:"no-store"}).then(function(r){return r.ok?r.text():""}).then(function(t){t=t.trim();if(!t||t===B||ep(t)<=ep(B)||busy())return;var k="kairoute.reloadedTo",s="";try{s=sessionStorage.getItem(k)||"";sessionStorage.setItem(k,t)}catch(e){}if(s===t){var u=new URL(location.href);if(u.searchParams.get("v")===t)return;u.searchParams.set("v",t);location.replace(u.href)}else location.reload()}).catch(function(){})}addEventListener("load",chk);addEventListener("pageshow",function(e){if(e.persisted)chk()});addEventListener("focus",chk);document.addEventListener("visibilitychange",chk);setInterval(chk,300000);if(navigator.serviceWorker)navigator.serviceWorker.addEventListener("message",function(e){if(e.data&&e.data.type==="kairoute-sw"){try{e.source.postMessage({type:"kairoute-alive"})}catch(x){}chk()}})})();</script>
