@@ -2338,11 +2338,12 @@ if (typeof module !== "undefined") module.exports = KEngine;
     // An article about a whole port (no map kind) says nothing about where the ships tie up.
     if (c.wiki && !c.kind && /^(port|harbou?r) of\b/i.test(n) && !/cruise|terminal|pier|wharf|berth/i.test(n)) return false;
     return true; };
-  // A passenger terminal is where ships take people on, however the map files it (Round 2 re-check: a port's
-  // "Passengers Terminal" was mapped as a public building and dropped). How sure a cruise pier is: named for cruises,
+  // A passenger terminal, or a cruise terminal or pier by name, is where ships take people on, however the map files
+  // it (Round 2 re-check: "Passengers Terminal" filed as a public building, a cruise terminal as an office or "yes", a
+  // cruise pier as a marina, were dropped). How sure a cruise pier is: named for cruises,
   // a mapped terminal, a pier or wharf.
   E.cruiseRank = c => (/cruise/i.test(String(c.name || "")) ? 4 : 0) + (/cruise_terminal/.test(String(c.kind || "")) ? 3 : 0) + (/terminal|berth|wharf|pier|dock|quay/i.test(String(c.name || "")) ? 1 : 0);
-  E.gateOk = (kind, c) => !!c && (kind !== "cruise" || E.cruiseOk(c)) && !/^(list|lists|index|outline) of\b/i.test(String(c.name || "").trim()) && !(GATE_BAD[kind] && GATE_BAD[kind].test(String(c.name || ""))) && !(c.kind && GATE_KINDS[kind] && !GATE_KINDS[kind].test(String(c.kind)) && !(kind === "cruise" && /\bpassengers?\b.*\bterminal\b/i.test(String(c.name || ""))));
+  E.gateOk = (kind, c) => !!c && (kind !== "cruise" || E.cruiseOk(c)) && !/^(list|lists|index|outline) of\b/i.test(String(c.name || "").trim()) && !(GATE_BAD[kind] && GATE_BAD[kind].test(String(c.name || ""))) && !(c.kind && GATE_KINDS[kind] && !GATE_KINDS[kind].test(String(c.kind)) && !(kind === "cruise" && /\bpassengers?\b.*\bterminal\b|\bcruise\b.*\b(terminal|pier|pirs?|quay|berth|wharf|dock|center|centre)s?\b/i.test(String(c.name || ""))));
   // Every real airport and station is kept, whether the map or the encyclopedia found it: a big airport known only from
   // its article must never be dropped (Round 2 re-check: dropping those picked a small airport silently, no question).
   E.gateChoices = (list, kind) => { const key = n => String(n || "").toLowerCase().normalize("NFKD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, " ").trim(), out = [];
@@ -16140,20 +16141,21 @@ async function srcStarts(label, area, port, centre, d) {
   const names = [...ask.airport, ...ask.station, ...ask.cruise];
   let res = null;
   try { const r = await fetch(freeAI.url + "/ground", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ city: label, names: names.slice(0, 8), center: centre && isFinite(centre.lat) ? { lat: centre.lat, lng: centre.lng } : undefined }) }); if (r.ok) { const j = await r.json(); if (Array.isArray(j.results)) res = j.results; } } catch (e) {}
-  const found = k => {
+  // R: the answers, one per name in N; C: where the search was centred (the city, or the port itself on a second look).
+  const found = (k, R = res, N = names, C = centre) => {
     // A port named apart from its city can be a long way out (a port 180 km from the capital it serves).
     const K = SG_KIND[k], lim = k === "cruise" && gate ? 300 : K.km, cands = [];
-    names.forEach((n, i) => { if (!ask[k].includes(n)) return; const x = (res && res[i]) || {};
+    N.forEach((n, i) => { if (!ask[k].includes(n)) return; const x = (R && R[i]) || {};
       (x.wiki || []).forEach(w => { if (w.lat != null && K.re.test(w.title || "")) cands.push({ name: w.title, lat: +w.lat, lng: +w.lng, any: n === "Cruise pier", wiki: true }); });
       (x.map || []).forEach(m => { if (isFinite(m.lat) && (K.re.test(m.name || "") || K.map.test(m.kind || ""))) cands.push({ name: m.name || n, lat: +m.lat, lng: +m.lng, kind: m.kind || "", any: n === "Cruise pier", fit: (K.map.test(m.kind || "") ? 2 : 0) + (k === "cruise" && /cruise|terminal|wharf|pier/i.test(m.name || "") ? 2 : 0) }); }); });
     // The plain "Cruise pier" search (asked last) only counts a place that names itself a cruise pier: a private island
     // or small port whose pier has no "Port of ..." name (Nov 18: CocoCay's pier is mapped as "Royal Caribbean Cruise
     // Pier"), never a nearby fishing or ferry pier.
     for (let i = cands.length - 1; i >= 0; i--) if (cands[i].any && !/cruise/i.test(cands[i].name)) cands.splice(i, 1);
-    const inReach = cands.filter(p => p.name && hav(p, centre) <= lim);
+    const inReach = cands.filter(p => p.name && hav(p, C) <= lim);
     // A real terminal on the map ("Prince George Wharf Cruise Ship Terminal", a dock) before a shop or a bank that only
     // has "port" in its name (Nov 18, Nassau: "Banana Bay Nassau's Port Shop" was taken for the cruise port).
-    const near = inReach.filter(p => !p.any).sort((a, b) => (a.fit === 0 ? 1 : 0) - (b.fit === 0 ? 1 : 0)).concat(inReach.filter(p => p.any).sort((a, b) => hav(a, centre) - hav(b, centre))); // the closest cruise pier, not a neighbour island's
+    const near = inReach.filter(p => !p.any).sort((a, b) => (a.fit === 0 ? 1 : 0) - (b.fit === 0 ? 1 : 0)).concat(inReach.filter(p => p.any).sort((a, b) => hav(a, C) - hav(b, C))); // the closest cruise pier, not a neighbour island's
     // A port named apart from the city ("Port (City)"): the pier is where the port is, the city only has the sights. The
     // search is centred on the city, so a pier in the city itself ("Bangkok Port" for a ship at a port 2 hours away) is
     // never taken for it (Round 2, N1): a pier that doesn't carry the port's own name counts only when it lies out of
@@ -16162,13 +16164,14 @@ async function srcStarts(label, area, port, centre, d) {
     // it serves the place from there (Round 2 re-check: a pier mapped only as "Cruise Terminal" was refused as too far).
     if (k === "cruise" && gate) { const out = (typeof KEngine !== "undefined" && KEngine.GATE_OUT) || 25;
       for (let i = near.length - 1; i >= 0; i--) { const c = near[i]; if (nameMatch(Pn, c.name)) continue;
-        if (/cruise/i.test(c.name) && hav(c, centre) > out) near[i] = Object.assign({}, c, { name: c.name + ", " + Pn }); else near.splice(i, 1); } }
+        if (/cruise|\bpassengers?\b.*\bterminal\b/i.test(c.name) && hav(c, centre) > out) near[i] = Object.assign({}, c, { addPort: true }); else near.splice(i, 1); } }
     // A pier named as another port's ("Port of <somewhere else>") is that port's, never this one's (Round 2 re-check: a
     // small harbour's pier taken for a city's cruise port).
     if (k === "cruise") for (let i = near.length - 1; i >= 0; i--) { const m = /^port of (.+)$/i.exec(String(near[i].name || "").trim()); if (m && !nameMatch(Pn, m[1]) && !nameMatch(A, m[1])) near.splice(i, 1); }
     // Never a building site or a closed station; every real one kept, so a city with several is asked which (Nov 20 tester:
     // London's Paris train sent to Victoria, Paris's station a Grand Paris Express building site).
-    const real = typeof KEngine !== "undefined" && KEngine.gateChoices ? KEngine.gateChoices(near, k) : near;
+    // (The port's name is added after this check, so a word in it never decides what the pier is.)
+    const real = (typeof KEngine !== "undefined" && KEngine.gateChoices ? KEngine.gateChoices(near, k) : near).map(c => c.addPort ? Object.assign({}, c, { name: c.name + ", " + Pn }) : c);
     // A port with more than one cruise pier the map is as sure of: the traveler is asked which, as for airports (Round 1);
     // Only piers the port's own name search found count (the plain "Cruise pier" search also finds a neighbour island's).
     // The order stays the one above (a real terminal first, then the closest), so the plan starts from the likeliest.
@@ -16184,6 +16187,15 @@ async function srcStarts(label, area, port, centre, d) {
     if (Array.isArray(p)) { p.forEach(x => starts[k].push({ name: x.name, lat: x.lat, lng: x.lng, note: "" })); continue; }
     if (!p && k !== "station") { const g = knownGate(k, { name: k === "cruise" ? Pn : A + " airport" }, centre, k === "cruise" && gate ? 300 : SG_KIND[k].km); if (g) p = { name: g.name, lat: g.lat, lng: g.lng }; }
     starts[k].push(p ? { name: p.name, lat: p.lat, lng: p.lng, note: "" } : { name: (k === "cruise" ? "Cruise port of " + Pn : k === "airport" ? A + " airport" : A + " main station"), lat: centre.lat, lng: centre.lng, note: "", unknown: true });
+  }
+  // A port named apart from its city with no pier found near the city: looked for again around the port itself, found
+  // from its own encyclopedia article (Round 2 re-check: a port 120 km from the city it serves was searched for only
+  // around the city, and nothing was found).
+  if (gate && freeAI && starts.cruise.length === 1 && starts.cruise[0].unknown && Array.isArray(res)) {
+    const at = res.flatMap(x => (x && x.wiki) || []).find(w => w && w.lat != null && isFinite(w.lat) && isFinite(w.lng) && nameMatch(Pn, w.title || ""));
+    if (at) try { const r = await fetch(freeAI.url + "/ground", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ city: Pn, names: ask.cruise, center: { lat: +at.lat, lng: +at.lng } }) });
+      if (r.ok) { const j = await r.json(); if (Array.isArray(j.results)) { const p = found("cruise", j.results, ask.cruise, { lat: +at.lat, lng: +at.lng });
+        if (p) starts.cruise = (Array.isArray(p) ? p : [p]).map(x => ({ name: x.name, lat: x.lat, lng: x.lng, note: "" })); } } } catch (e) {}
   }
   starts.hotel.push({ name: "Hotel in central " + A, lat: centre.lat, lng: centre.lng, note: "Add your own hotel on the Trip page for exact times." });
   starts.point.push({ name: "Central " + A, lat: centre.lat, lng: centre.lng, note: "" });
@@ -18915,6 +18927,7 @@ if (typeof window !== "undefined") window.__kairouteVoyageCheck = () => {
 // The answers are kept with the place (its sights' own fields), so they are asked once and work offline. Free services,
 // no AI, from the traveler's own connection. A service that doesn't answer changes nothing: the plan stays as it was.
 const WATER_STORE_V = 2;
+const WATER_NO_ROAD = 1000; // metres: a stop this far from any road, with no path near it, is reached by boat
 const WATER_FAR_ROAD = 400; // metres from a road a car can drive: a stop this far is checked on foot for a ferry
 // The browser's own fetch, not the app's counting one: a question that fails or finds nothing changes no plan, so it must
 // not make every plan look stale (Nov 20 sweep: offline, each failed question re-planned the day, an 8.7 s tick). An
@@ -18944,13 +18957,15 @@ function waterIslandsFrom(d, n) {
 //   on another island than every start with no path near it (a summit far from a path is not across by itself). A stop on
 //   a start's island, or on the mainland with every start, is never across. The map's island question is often turned
 //   away (Round 2 re-check: no answer in 3 of 6 places), so a ferry on the only way on foot is enough without it.
-function waterAcross(pts, homes, isl, homeIsl, onFoot) {
+function waterAcross(pts, homes, isl, homeIsl, onFoot, far) {
   const share = (x, y) => !x ? !y : !!y && x.ids.some(id => y.ids.includes(id));
   const known = (homeIsl || []).filter(x => x !== null), out = {}, named = [];
   pts.forEach((p, i) => { const mine = isl ? isl[i] : null, walk = onFoot(i);
     if (walk == null || walk === true) return;
     if (mine != null && known.length && known.some(h => share(mine, h))) return;                           // a start's island, or the mainland
-    const other = mine && known.length;                                                                      // another island than every start
+    // Another island than every start, or (no island answer) no path near a stop far out from any road: the road
+    // router's nearest road is then over the water (Round 2: a volcano islet planned as "walk to the road, then taxi").
+    const other = (mine && known.length) || (!mine && walk === false && far && far(i));
     if (!(walk === "ferry" || walk === "none" || (walk === false && other))) return;
     // The island's name; without the map's answer, stops close together share the first one's name (one island, one boat).
     const near = !mine && named.find(x => typeof hav === "function" && isFinite(+p.lat) && hav(x.p, p) <= 2);
@@ -19003,7 +19018,7 @@ function waterCheck(city, homes) {
       const hk = hIsl.findIndex(h => h !== null), from = starts[hk >= 0 ? hk : 0];
       for (let k = 0; k < list.length; k += 4) await Promise.all(list.slice(k, k + 4).map(async i => { foot[i] = await waterFoot(from, stops[i]); })); };
     const apply = () => {
-      const across = waterAcross(stops, starts, sIsl, hIsl, i => foot[i] === undefined ? (sIsl[i] != null && !asked.has(i) ? true : null) : foot[i]);
+      const across = waterAcross(stops, starts, sIsl, hIsl, i => foot[i] === undefined ? (sIsl[i] != null && !asked.has(i) ? true : null) : foot[i], i => !!gaps && gaps[i] > WATER_NO_ROAD);
       const before = stops.map(s => ({ a: s.acrossWater, g: s.roadGap }));
       stops.forEach((s, i) => {
         // A stop is marked or cleared only on an answer about it (a walking route, or the map's island for one not walked).
@@ -19358,4 +19373,4 @@ render();
 
 </script>
 <script>if ("serviceWorker" in navigator) addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));</script>
-<script>(function(){var B="142b953-1795234773";function ep(v){return +String(v).split("-").pop()||0}function busy(){return document.body&&document.body.classList.contains("touring-on")}function chk(){if(location.protocol!=="https:"||document.visibilityState!=="visible")return;fetch("version.txt",{cache:"no-store"}).then(function(r){return r.ok?r.text():""}).then(function(t){t=t.trim();if(!t||t===B||ep(t)<=ep(B)||busy())return;var k="kairoute.reloadedTo",s="";try{s=sessionStorage.getItem(k)||"";sessionStorage.setItem(k,t)}catch(e){}if(s===t){var u=new URL(location.href);if(u.searchParams.get("v")===t)return;u.searchParams.set("v",t);location.replace(u.href)}else location.reload()}).catch(function(){})}addEventListener("load",chk);addEventListener("pageshow",function(e){if(e.persisted)chk()});addEventListener("focus",chk);document.addEventListener("visibilitychange",chk);setInterval(chk,300000);if(navigator.serviceWorker)navigator.serviceWorker.addEventListener("message",function(e){if(e.data&&e.data.type==="kairoute-sw"){try{e.source.postMessage({type:"kairoute-alive"})}catch(x){}chk()}})})();</script>
+<script>(function(){var B="3f0e3de-1795240068";function ep(v){return +String(v).split("-").pop()||0}function busy(){return document.body&&document.body.classList.contains("touring-on")}function chk(){if(location.protocol!=="https:"||document.visibilityState!=="visible")return;fetch("version.txt",{cache:"no-store"}).then(function(r){return r.ok?r.text():""}).then(function(t){t=t.trim();if(!t||t===B||ep(t)<=ep(B)||busy())return;var k="kairoute.reloadedTo",s="";try{s=sessionStorage.getItem(k)||"";sessionStorage.setItem(k,t)}catch(e){}if(s===t){var u=new URL(location.href);if(u.searchParams.get("v")===t)return;u.searchParams.set("v",t);location.replace(u.href)}else location.reload()}).catch(function(){})}addEventListener("load",chk);addEventListener("pageshow",function(e){if(e.persisted)chk()});addEventListener("focus",chk);document.addEventListener("visibilitychange",chk);setInterval(chk,300000);if(navigator.serviceWorker)navigator.serviceWorker.addEventListener("message",function(e){if(e.data&&e.data.type==="kairoute-sw"){try{e.source.postMessage({type:"kairoute-alive"})}catch(x){}chk()}})})();</script>
