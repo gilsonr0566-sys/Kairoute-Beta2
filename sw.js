@@ -3,7 +3,7 @@
 // GitHub account (the demo app, Beta 2, other projects), and so is the browser's cache store: an update deletes only
 // this app's own older caches, never another app's (Nov 21 review: Beta 2 and the demo used the same name, and an update
 // of either deleted every other cache on the address). build-beta2.sh gives Beta 2 its own APP name.
-const APP = "kairoute";
+const APP = "kairoute-b2";
 const CACHE = APP + "-v4";
 const KEEP = /^kairoute-maps-/; // the map store (tiles and label fonts) is managed by the app and survives app updates
 const OWN = k => k.indexOf(APP + "-v") === 0;
