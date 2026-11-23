@@ -20,6 +20,18 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
+      # Publish only what the release gate passed (QA spec v2, T4; Richard Nov 23: "refuses to publish when it cannot
+      # demonstrate that a trip is safe"). version.txt starts with the Kairoute commit the page was built from; that exact
+      # commit must have a successful "Beta 2 release gate" run, whose last job passes only when the report says
+      # RELEASE OK. No run, a failed run, or a run still going: nothing is published. There is no override.
+      - name: The release gate passed this exact commit (RELEASE OK)
+        env: { GH_TOKEN: "${{ github.token }}" }
+        run: |
+          short=$(tr -d '\n' < version.txt | cut -d- -f1)
+          sha=$(gh api "repos/gilsonr0566-sys/kairoute/commits/$short" --jq .sha) || { echo "REFUSED: version.txt names '$short', not a Kairoute commit"; exit 1; }
+          ok=$(gh api "repos/gilsonr0566-sys/kairoute/actions/workflows/beta2-gate.yml/runs?head_sha=$sha&status=success&per_page=1" --jq '.workflow_runs[0].html_url // empty')
+          [ -n "$ok" ] || { echo "REFUSED: commit $sha has no passing release gate run (RELEASE OK). Run the gate on it, fix what it finds, then publish."; exit 1; }
+          echo "Release gate passed $sha: $ok"
       - run: mkdir _site && cp -r index.html usage.html version.txt .nojekyll manifest.webmanifest sw.js icons lib ai.json audio _site/
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
