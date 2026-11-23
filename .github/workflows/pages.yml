@@ -31,6 +31,10 @@ jobs:
           sha=$(gh api "repos/gilsonr0566-sys/kairoute/commits/$short" --jq .sha) || { echo "REFUSED: version.txt names '$short', not a Kairoute commit"; exit 1; }
           ok=$(gh api "repos/gilsonr0566-sys/kairoute/actions/workflows/beta2-gate.yml/runs?head_sha=$sha&status=success&per_page=1" --jq '.workflow_runs[0].html_url // empty')
           [ -n "$ok" ] || { echo "REFUSED: commit $sha has no passing release gate run (RELEASE OK). Run the gate on it, fix what it finds, then publish."; exit 1; }
+          # Gate runs before 01305861 went green on any report, DO NOT RELEASE included (escapes E19): only a commit that
+          # contains that fix can carry a green run that means RELEASE OK.
+          st=$(gh api "repos/gilsonr0566-sys/kairoute/compare/01305861...$sha" --jq .status) || st=none
+          case "$st" in ahead|identical) ;; *) echo "REFUSED: commit $sha does not contain the gate verdict fix 01305861 ($st); its green run may hide DO NOT RELEASE"; exit 1;; esac
           echo "Release gate passed $sha: $ok"
       - run: mkdir _site && cp -r index.html usage.html version.txt .nojekyll manifest.webmanifest sw.js icons lib ai.json audio _site/
       - uses: actions/configure-pages@v5
