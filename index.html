@@ -1782,6 +1782,7 @@ var KEngine = typeof KEngine !== "undefined" ? KEngine : {};
   // "Train"); in a sentence, the name after "to", "from" or "at" becomes "the stop", after "take" or "ride" "the line", and
   // any other is left out (round 2 outside test, Nov 23: Hebrew train lines, Japanese station names).
   const OTHER = /[^\u0000-\u024F\u1E00-\u1EFF\u2000-\u206F\u20A0-\u20CF]/;
+  E.cap = n => String(n == null ? "" : n).replace(/^\p{Ll}/u, c => c.toUpperCase());
   E.say = (name, plain) => { const t = E.latin(name); if (!OTHER.test(t)) return t;
     if (plain != null) { const left = t.replace(/[^\u0000-\u024F\u1E00-\u1EFF]+/g, " ").replace(/[()\[\]\-–,·:]+\s*$/g, "").replace(/\(\s*\)/g, "").replace(/\s+/g, " ").trim(); return /[A-Za-z]{3}/.test(left) ? left : plain; }
     return t.replace(/(\b(?:to|from|at|towards|via|for|into)\s+)?([^\u0000-\u024F\u1E00-\u1EFF\s][^\u0000-\u024F\u1E00-\u1EFF]*(?:\s+[^\u0000-\u024F\u1E00-\u1EFF\s][^\u0000-\u024F\u1E00-\u1EFF]*)*)/gi,
@@ -1966,6 +1967,9 @@ if (typeof module !== "undefined") module.exports = KEngine;
         }
       }
     }
+    // A sight's name as a guide prints it, from every source (R-11, Nov 24): a capital first letter ("piazza Venezia" is
+    // Piazza Venezia, "place de la Concorde" is Place de la Concorde).
+    for (const city of Object.values(b.cities || {})) for (const k of ["sites", "farther"]) for (const s of city[k] || []) if (s && typeof s.name === "string") s.name = E.cap(s.name);
     return b;
   };
 })(KEngine);
@@ -2749,6 +2753,7 @@ if (typeof module !== "undefined") module.exports = KEngine;
 // sit inside a group and still be its own stop (its own guide and narration) within the group's visit.
 // Membership comes from two general rules, never from a list of places:
 //  1. the map's own boundaries: the sight stands inside the group's mapped area (kept in the places database as `in`);
+//  1b. a story's walk that stops at the sight (`onWalk`): the walk goes there, so the sight is on it;
 //  2. an open square or plaza has no walls, so the buildings that face onto it belong to it: a sight within a short walk
 //     of the square's centre (SQUARE_REACH) is a member. An old town or district with no mapped boundary is the same:
 //     its point is its heart, so a sight within OLD_TOWN_REACH of it is part of its walk.
@@ -2773,6 +2778,8 @@ if (typeof module !== "undefined") module.exports = KEngine;
     const holders = new Map(); // site id -> ids of groups it stands in
     const add = (m, g) => { if (m === g) return; const k = String(m); if (!holders.has(k)) holders.set(k, new Set()); holders.get(k).add(String(g)); };
     for (const s of list) for (const g of s.in || []) if (byId.has(String(g))) add(s.id, g);                 // rule 1: map boundaries
+    // rule 1b: a sight a story's walk stops at (onWalk, from the story library) is on that walk, as if inside it.
+    for (const s of list) for (const g of s.onWalk || []) if (byId.has(String(g))) add(s.id, g);
     for (const g of list) if (E.isSquare(g) && !g.far) for (const s of list)                                // rule 2: around a square
       if (s !== g && !s.far && !E.isSquare(s) && E.hav(s, g) <= E.SQUARE_REACH && !(g.in || []).includes(s.id)) add(s.id, g.id);
     for (const g of list) if (OLD_TOWN.test(text(g)) && !E.isSquare(g) && !g.far && !list.some(s => (s.in || []).map(String).includes(String(g.id)))) for (const s of list)
@@ -2784,6 +2791,7 @@ if (typeof module !== "undefined") module.exports = KEngine;
     for (const [m, gs] of holders) { if (!gs.size) continue;
       // Of holders that don't sit in one another, the nearest (the square a church faces, not the district around it).
       const m0 = byId.get(m), near = (a, b) => (m0 ? E.hav(m0, byId.get(a)) - E.hav(m0, byId.get(b)) : 0) || a.localeCompare(b);
+      const walk = m0 && (m0.onWalk || []).map(String).find(g => gs.has(g)); if (walk) { groupOf.set(m, walk); continue; }
       const inner = [...gs].filter(g => ![...gs].some(h => h !== g && holders.has(h) && holders.get(h).has(g))).sort(near)[0] || [...gs].sort(near)[0];
       groupOf.set(m, inner); }
     const members = new Map(), kind = new Map();
@@ -3088,12 +3096,15 @@ if (typeof module !== "undefined") module.exports = KEngine;
       });
     }
     const key = meal + n + "@" + p.lat + "," + p.lng, got = ctx.eatMemo.get(key); if (got) return got;
+    // Which places are open for this meal and free today doesn't depend on the point either: worked out once per meal
+    // (speed, Nov 24: this scan ran for every point of every trial plan on Choose sights).
+    if (!ctx.eatOpen) ctx.eatOpen = new Map();
+    let open = ctx.eatOpen.get(meal);
+    if (!open) { open = ctx.eatList.filter(x => !(E.eatShut(x.f, meal) || (meal !== "Lunch" && (x.r.townLunch || x.r.inTown))) && ctx.ledger.eatFree(x.k, ctx.dayIdx))
+      .map(x => ({ x, add: (x.r.fromMap ? 0.4 : 0) + (E.cafeName(x.r) ? 0.6 : 0) })); ctx.eatOpen.set(meal, open); }
     const out = [];
-    for (const x of ctx.eatList) {
-      if (E.eatShut(x.f, meal) || (meal !== "Lunch" && (x.r.townLunch || x.r.inTown))) continue;
-      if (!ctx.ledger.eatFree(x.k, ctx.dayIdx)) continue;
-      out.push({ r: x.r, k: x.k, d: E.hav(p, x.r) + (x.r.fromMap ? 0.4 : 0) + (E.cafeName(x.r) ? 0.6 : 0) }); // a guide place to eat first, a map one when it is nearer the way
-    }
+    const bLat = 1.5 / 110, bLng = 1.5 / (110 * Math.max(0.05, Math.cos(p.lat * Math.PI / 180))); // only places within 1.5 km are kept
+    for (const { x, add } of open) { if (Math.abs(x.r.lat - p.lat) > bLat || Math.abs(x.r.lng - p.lng) > bLng) continue; out.push({ r: x.r, k: x.k, d: E.hav(p, x.r) + add }); } // a guide place to eat first, a map one when it is nearer the way
     out.sort((a, b) => a.d - b.d || a.k.localeCompare(b.k));
     const res = out.slice(0, n).filter(x => x.d <= 1.5);
     ctx.eatMemo.set(key, res); return res;
@@ -3876,14 +3887,17 @@ if (typeof module !== "undefined") module.exports = KEngine;
   E.FOLD_NEAR = 0.2; // km: right beside the bigger visit
   E.foldExtra = s => Math.min(20, Math.max(5, Math.round((s.minutes || 30) * 0.25 / 5) * 5));
   // gated(h): the bigger visit has its own opening hours this day (a gate: an excavation town, a castle).
-  E.foldPicks = (picks, groups, gated) => {
+  // walkOk(h, s): a sight on h's story walk may be seen on it this day (its own hours leave the walk's time open); a sight
+  // shut then is never "seen on the walk" (Nov 24 review of the one-story-one-stop fix).
+  E.foldPicks = (picks, groups, gated, walkOk) => {
     const ids = new Map(picks.map(s => [String(s.id), s])), into = new Map();
-    const covers = (h, s) => !!(gated && gated(h)) || (!s.far && !E.needsHours(s)) || (s.minutes || 30) <= 15 || (!h.far && E.needsHours(h) && !E.isOpenArea(h));
+    const onWalk = (h, s) => (s.onWalk || []).map(String).includes(String(h.id)) && (!walkOk || walkOk(h, s));
+    const covers = (h, s) => onWalk(h, s) || !!(gated && gated(h)) || (!s.far && !E.needsHours(s)) || (s.minutes || 30) <= 15 || (!h.far && E.needsHours(h) && !E.isOpenArea(h));
     for (const s of picks) {
       let k = String(s.id), seen = new Set([k]), h = null;
       if (s.town != null && ids.has(String(s.town))) h = ids.get(String(s.town));
       else while (groups && groups.groupOf.has(k)) { k = String(groups.groupOf.get(k)); if (seen.has(k)) break; seen.add(k); if (ids.has(k)) { h = ids.get(k); break; } }
-      if (h && covers(h, s)) { into.set(String(s.id), { h, beside: false }); continue; }
+      if (h && covers(h, s)) { into.set(String(s.id), { h, beside: false, walk: onWalk(h, s) }); continue; }
       // Beside: only one small thing (a fountain, a statue), never an area or a street (a historic centre is never part of a chapel).
       if (s.far || E.needsHours(s) || E.isAreaKind(s) || E.isOpenArea(s) || /\b(street|road|avenue|boulevard|lane|rua|calle|strasse|straße)\b/i.test(s.name) || !isFinite(s.lat)) continue;
       const near = picks.filter(x => x !== s && !x.far && isFinite(x.lat) && (x.fullMinutes || x.minutes || 30) > (s.minutes || 30) && E.hav(x, s) <= E.FOLD_NEAR)
@@ -3893,7 +3907,7 @@ if (typeof module !== "undefined") module.exports = KEngine;
     const root = id => { let k = id, n = 0; while (into.has(k) && n++ < 20) k = String(into.get(k).h.id); return k; };
     const folded = {};
     for (const [id, f] of into) { const r = root(id); if (r === id) continue; const s = ids.get(id);
-      (folded[r] = folded[r] || []).push({ id: s.id, name: s.name, extra: E.foldExtra(s), beside: f.beside && r === String(f.h.id) }); }
+      (folded[r] = folded[r] || []).push({ id: s.id, name: s.name, extra: f.walk && r === String(f.h.id) ? 0 : E.foldExtra(s), beside: f.beside && r === String(f.h.id), ...(f.walk && r === String(f.h.id) ? { walk: true, own: s.minutes || 30 } : {}) }); }
     if (!Object.keys(folded).length) return { picks, folded };
     const out0 = picks.filter(s => !(into.has(String(s.id)) && root(String(s.id)) !== String(s.id)));
     const out = out0.map(s => { const f = folded[String(s.id)]; if (!f) return s;
@@ -3901,11 +3915,22 @@ if (typeof module !== "undefined") module.exports = KEngine;
       // Its own time back, less only what its remaining own stops take (as the pool shortens it, never under half an hour).
       const base = s.fullMinutes || s.minutes || 60, rest = out0.filter(x => walkOf.includes(x.name)).reduce((a, x) => a + (x.minutes || 30), 0);
       const left = walkOf.length ? Math.min(base, Math.max(30, Math.round((base - rest) / 5) * 5)) : base;
-      const t = Object.assign({}, s, { minutes: left + f.reduce((a, x) => a + x.extra, 0), folded: f });
+      // A sight the walk's story stops at (onWalk) keeps its own time inside the walk: the walk gets at least half an hour
+      // around it, as when it was a stop of its own beside the walk (the day's time is the same, told as one visit).
+      const onW = f.filter(x => x.walk).reduce((a, x) => a + x.own, 0), body = onW ? Math.max(left, Math.ceil((30 + onW) / 5) * 5) : left;
+      const t = Object.assign({}, s, { minutes: body + f.reduce((a, x) => a + x.extra, 0), folded: f });
       if (walkOf.length) t.walkOf = walkOf; else { delete t.walkOf; delete t.fullMinutes; }
       return t; });
     return { picks: out, folded };
   };
+  // A walk's hours with the sights folded into it: open only while every one of them is (spans intersected); shut if
+  // any is shut that day; hours assumed if any are assumed. own: the walk's own facts (often none: open-air).
+  E.walkHours = (own, members) => { if (!members.length) return own;
+    const lists = [own].concat(members).filter(sd => sd && (sd.closed || (sd.oh && sd.oh.spans && sd.oh.spans.length)));
+    if (!lists.length) return own; if (lists.some(sd => sd.closed)) return Object.assign({}, own, { closed: true });
+    let sp = [[0, 1440 + 360]]; for (const sd of lists) sp = sp.flatMap(([a, b]) => sd.oh.spans.map(([c, d]) => [Math.max(a, c), Math.min(b, d)]).filter(([u, v]) => v > u));
+    const last = Math.min(...lists.map(sd => sd.oh.last != null ? sd.oh.last : Infinity));
+    return Object.assign({}, own, { closed: !sp.length, oh: { spans: E.mergeSpans(sp), last: isFinite(last) ? last : null }, ...(lists.some(sd => sd.assumed) ? { assumed: true } : {}) }); };
   E.listWords = (xs, joiner) => xs.length < 2 ? xs.join("") : xs.slice(0, -1).join(", ") + " " + (joiner || "or") + " " + xs[xs.length - 1];
   // Which list a sight came in on (a guide's sights or its trips out) doesn't decide how it's planned; where it is does.
   // A sight more than FAR_KM from the heart of the place's sights (their median point) is a trip out, with its own ride,
@@ -4034,7 +4059,7 @@ if (typeof module !== "undefined") module.exports = KEngine;
       // An area walk whose sights with their own tour are stops of their own: the walk keeps only the time between them
       // (its own time less theirs, never under half an hour), and its time goes to more sights.
       const byIdR = new Map(ranked.map(s => [String(s.id), s]));
-      const own = g => (groups.members.get(String(g.id)) || []).map(m => byIdR.get(String(m))).filter(m => m && E.ownStop(m, picked));
+      const own = g => (groups.members.get(String(g.id)) || []).map(m => byIdR.get(String(m))).filter(m => m && E.ownStop(m, picked) && E.allowed(m, prefs, siteDay(m.id), win)); // a member shut today is no stop of its own (never "the walk to X, a stop of its own" for a closed X)
       // A sight seen only from the water is never a stop the app adds on a ship, train or plane day (a boat tour is the
       // traveler's own pick); picked, it is reached by boat.
       // An optional stop the traveler said "Skip it" to is never added to this day again (Nov 18: the button did nothing).
@@ -4101,15 +4126,37 @@ if (typeof module !== "undefined") module.exports = KEngine;
         return inTown.length ? Object.assign({}, s, { minutes: s.townWalk, walkOf: inTown.map(m => m.name), fullMinutes: s.minutes || 60 }) : s; });
       // Picks inside or right beside a bigger picked visit are part of it (E.foldPicks); never added again as fillers.
       let foldedIds = new Set();
-      if (!again) { const fp = E.foldPicks(picks, groups, h => gated(ownDay(h.id))); picks = fp.picks; Object.values(fp.folded).forEach(f => f.forEach(x => foldedIds.add(String(x.id)))); }
+      // A sight on a story walk (R-16, one story one stop) is folded in only when its own hours leave the whole walk open
+      // that day; the walk is then planned inside those hours (its hours are the sight's), so it is never "seen on the
+      // walk" while shut. Otherwise it stays a stop of its own, planned or said closed by its own hours (R-14).
+      const walkMin = (h, s) => Math.max(h.fullMinutes || h.minutes || 60, Math.ceil((30 + (s.minutes || 30)) / 5) * 5);
+      const walkOk = (h, s) => { const sd = siteDay(s.id); if (!sd) return true; if (sd.closed) return false; const sp = sd.oh && sd.oh.spans;
+        return !sp || !sp.length || sp.some(([a, b]) => Math.min(b, win.endBy) - Math.max(a, win.start) >= walkMin(h, s)); };
+      if (!again) { const fp = E.foldPicks(picks, groups, h => gated(ownDay(h.id)), walkOk); picks = fp.picks; Object.values(fp.folded).forEach(f => f.forEach(x => foldedIds.add(String(x.id)))); }
       else again.kept.forEach(k => (k.folded || []).forEach(x => foldedIds.add(String(x.id))));
-      const fit = E.fitDay(d.cleared ? Object.assign({}, d, { fillTime: false }) : d, win, picks, foldedIds.size ? pool.filter(s => !foldedIds.has(String(s.id))) : pool, ctx);
+      { const walks = new Map(); picks.forEach(p => { const w = (p.folded || []).filter(x => x.walk).map(x => String(x.id)); if (w.length) walks.set(String(p.id), w); });
+        if (walks.size) { const base = ctx.siteDay; ctx.siteDay = id => E.walkHours(base(id), (walks.get(String(id)) || []).map(m => base(m))); } }
+      const fitOf = pk => E.fitDay(d.cleared ? Object.assign({}, d, { fillTime: false }) : d, win, pk, foldedIds.size ? pool.filter(s => !foldedIds.has(String(s.id))) : pool, ctx);
+      let fit = fitOf(picks);
+      // A walk shortened for sights inside it that are stops of their own gets its time back when those stops don't make the
+      // day (Nov 24 review: "La Rambla gets 30 min, the walk between Plaça de Catalunya and Plaça Reial, which are stops of
+      // their own" on a day with neither planned). Planned once more with the walk's time put back; never untrue words.
+      if (fit.kept.some(s => s.walkOf && s.walkOf.some(n => !fit.kept.some(k => k.name === n)))) {
+        const back = picks.map(s => { if (!s.walkOf) return s; const k = fit.kept.find(x => String(x.id) === String(s.id)); if (!k) return s;
+          const walkOf = s.walkOf.filter(n => fit.kept.some(x => x.name === n)), full = s.fullMinutes || s.minutes || 60;
+          const rest = fit.kept.filter(x => walkOf.includes(x.name)).reduce((a, x) => a + (x.minutes || 30), 0), left = walkOf.length ? Math.min(full, Math.max(30, Math.round((full - rest) / 5) * 5)) : full;
+          const t = Object.assign({}, s, { minutes: left + (s.folded || []).reduce((a, x) => a + (x.extra || 0), 0) }); if (walkOf.length) t.walkOf = walkOf; else { delete t.walkOf; delete t.fullMinutes; } return t; })
+          ; // every pick goes in again (one left out is then said left out, as on the first try)
+        const dropped = picks.filter(s => s.walkOf && fit.kept.some(x => String(x.id) === String(s.id))).flatMap(s => s.walkOf.filter(n => !fit.kept.some(k => k.name === n)).map(n => [n, s.name]));
+        const again2 = fitOf(back); if (again2.kept.filter(x => !x.filled).length >= fit.kept.filter(x => !x.filled).length) { fit = again2;
+          dropped.filter(([n, w]) => !fit.kept.some(k => k.name === n) && fit.kept.some(k => k.name === w)).forEach(([n, w]) => { const line = n + " is part of the " + w + " walk: seen on that visit, not a stop of its own today.";
+            if (!explain.includes(line)) explain.push(line); }); } }
       fit.kept.forEach(s => { if (s.filled) autoIds.add(String(s.id)); });
       // A place shortened because its own sights are stops of their own says so (Fable review #12: never shortened silently).
       const mine = names => names.every(n => wishes.some(w => w.name === n && !w.guideWish));
-      fit.kept.filter(s => s.walkOf && s.fullMinutes > s.minutes).forEach(s => { const line = s.name + " gets " + s.minutes + " min, the walk " + (s.walkOf.length > 1 ? "between " + E.listWords(s.walkOf, "and") + (mine(s.walkOf) ? ", which you picked as stops of their own" : ", which are stops of their own") : "to " + s.walkOf[0] + (mine(s.walkOf) ? ", which you picked as a stop of its own" : ", which is a stop of its own")) + " (on its own it gets " + s.fullMinutes + " min).";
+      fit.kept.filter(s => s.walkOf && s.fullMinutes > s.minutes && s.walkOf.every(n => fit.kept.some(k => k.name === n))).forEach(s => { const line = s.name + " gets " + s.minutes + " min, the walk " + (s.walkOf.length > 1 ? "between " + E.listWords(s.walkOf, "and") + (mine(s.walkOf) ? ", which you picked as stops of their own" : ", which are stops of their own") : "to " + s.walkOf[0] + (mine(s.walkOf) ? ", which you picked as a stop of its own" : ", which is a stop of its own")) + " (on its own it gets " + s.fullMinutes + " min).";
         if (!explain.some(t => t.startsWith(s.name + " gets "))) explain.push(line); });
-      fit.kept.forEach(s => (s.folded || []).forEach(x => { const line = x.name + (x.beside ? " is right beside " : " is inside ") + s.name + ": seen on that visit (" + x.extra + " min more), not a stop of its own.";
+      fit.kept.forEach(s => (s.folded || []).forEach(x => { const line = x.walk ? x.name + " is on the " + s.name + " walk: seen on that visit, not a stop of its own." : x.name + (x.beside ? " is right beside " : " is inside ") + s.name + ": seen on that visit (" + x.extra + " min more), not a stop of its own.";
         if (!explain.includes(line)) explain.push(line); }));
       // Lunch back on board (Nov 20, decided for Richard's lunch rule: every day over lunchtime has a timed lunch): a port day
       // whose picks fill the time ashore, back at the ship in time for lunch, has lunch on board. It never shortens a pick
@@ -4332,7 +4379,10 @@ if (typeof module !== "undefined") module.exports = KEngine;
     out.forEach((p, i) => { if (!p || !p.items || p.safe) return; const d = days[i], city = guides[d.city]; if (!city || (byCity.get(d.city) || []).length !== 1) return;
       const said = (p.explain || []).join(" "), left = (city.sites || []).filter(s => E.ownStop(s) && !plannedIds.has(String(s.id)) && !said.includes(s.name));
       if (!left.length) return; p.leftOut = left.map(s => s.id);
-      const names = left.slice(0, 4).map(s => s.name).concat(left.length > 4 ? [(left.length - 4) + " more"] : []);
+      // A sight shut that date is said shut, never "not in today's time" (R-18: the one real reason).
+      const shut = left.filter(s => ((d.sites || {})[s.id] || {}).closed); if (shut.length) p.explain = (p.explain || []).concat([E.listWords(shut.map(s => s.name), "and") + (shut.length > 1 ? " are" : " is") + " closed on this date."]);
+      const open = left.filter(s => !shut.includes(s)); if (!open.length) return;
+      const names = open.slice(0, 4).map(s => s.name).concat(open.length > 4 ? [(open.length - 4) + " more"] : []);
       p.explain = (p.explain || []).concat([(d.own ? "Also worth seeing here, not on your list: " : "Also worth seeing here, but not in today's time: ") + E.listWords(names, "and") + "."]); });
     // Never a silent gap of time either: an hour or more left at the end of a day are named as free time,
     // with the nearest trip out nobody took and why it wasn't added (it doesn't fit, or not with a safe margin).
@@ -5969,6 +6019,7 @@ var KEngine = typeof KEngine !== "undefined" ? KEngine : {};
   // "Train"); in a sentence, the name after "to", "from" or "at" becomes "the stop", after "take" or "ride" "the line", and
   // any other is left out (round 2 outside test, Nov 23: Hebrew train lines, Japanese station names).
   const OTHER = /[^\u0000-\u024F\u1E00-\u1EFF\u2000-\u206F\u20A0-\u20CF]/;
+  E.cap = n => String(n == null ? "" : n).replace(/^\p{Ll}/u, c => c.toUpperCase());
   E.say = (name, plain) => { const t = E.latin(name); if (!OTHER.test(t)) return t;
     if (plain != null) { const left = t.replace(/[^\u0000-\u024F\u1E00-\u1EFF]+/g, " ").replace(/[()\[\]\-–,·:]+\s*$/g, "").replace(/\(\s*\)/g, "").replace(/\s+/g, " ").trim(); return /[A-Za-z]{3}/.test(left) ? left : plain; }
     return t.replace(/(\b(?:to|from|at|towards|via|for|into)\s+)?([^\u0000-\u024F\u1E00-\u1EFF\s][^\u0000-\u024F\u1E00-\u1EFF]*(?:\s+[^\u0000-\u024F\u1E00-\u1EFF\s][^\u0000-\u024F\u1E00-\u1EFF]*)*)/gi,
@@ -6965,7 +7016,7 @@ async function syncPull() {
 async function syncStart() {
   syncNote = ""; syncBusy = true; render();
   try { const { status, j } = await syncCall({ op: "new", data: syncPayload() }); if (status === 200 && j && j.code) syncSet({ code: j.code, rev: j.rev, at: Date.now() }); else syncNote = "Sync couldn't start just now. Try again in a minute."; }
-  catch (e) { syncNote = "Sync needs the internet. Try again when you're online."; }
+  catch (e) { syncNote = netWhy("Sync", "Syncing"); }
   syncBusy = false; render();
 }
 async function syncLink() {
@@ -6979,7 +7030,7 @@ async function syncLink() {
     const g = await syncCall({ op: "get", code });
     if (g.status === 200 && g.j) { syncBusy = false; syncSet({ code, rev: g.j.rev, at: Date.now() }); syncMerge(g.j.data, true); syncJoin = null; syncNote = "Linked. Your trips now match your other device."; syncPush(); }
     else syncNote = g.status === 404 ? "That code wasn't found. Check it on your other device (Settings > Connect another device)." : g.status === 429 ? "Too many tries today. Try again tomorrow." : "Sync couldn't connect just now. Try again in a minute.";
-  } catch (e) { syncNote = "Linking needs the internet. Try again when you're online."; }
+  } catch (e) { syncNote = netWhy("Linking", "Linking"); }
   syncBusy = false; render();
 }
 const fmtCode = c => c ? c.slice(0, 4) + "-" + c.slice(4) : "";
@@ -8352,7 +8403,7 @@ function checksCard(d, city, plan) {
   // (failure map, Nov 22: one boarding day showed four different leave times).
   const F = !plan.over ? dayFacts(d, plan) : null, freeOn = F && F.left >= 30 && F.leaveBy != null && !(plan.dropped || []).length && !(plan.w && plan.w.straight);
   if (plan.over) add("warn", `The day runs past ${fmt(plan.endBy)}. Take out a stop.`);
-  else if (freeOn) add("ok", `The day fits, with travel, meals and lines allowed for: ${dur(F.left)} of free time, then leave by ${fmt(F.leaveBy)} to be back by ${fmt(plan.endBy)}.`);
+  else if (freeOn) add("ok", noWayBack(plan, F) ? (F.fixed ? `The day fits, with travel, meals and lines allowed for: ${dur(F.left)} of free time. Nothing is planned away from here, so leave in time from wherever you go: be back at ${esc(backWhere(d, plan))} by ${fmt(plan.endBy)}.` : `The day fits, with travel, meals and lines allowed for: ${dur(F.left)} of free time, up to ${fmt(plan.endBy)}, the end of your day.`) : `The day fits, with travel, meals and lines allowed for: ${dur(F.left)} of free time, then leave by ${fmt(F.leaveBy)} to be back by ${fmt(plan.endBy)}.`);
   else add("ok", `The day fits: done by ${fmt(plan.end)}, with travel, meals and lines allowed for.`);
   if ((plan.dropped || []).length) add("warn", dropLine(d, plan, plan.dropped, true));
   const short = (plan.stops || []).filter(s => s.shortFrom && s.shortFrom > s.minutes);
@@ -9679,13 +9730,19 @@ const sourcesCache = {};
 // Places whose travel guides and maps could not be reached at all (no signal, or the helper was down), as against
 // places that were reached and are not known. A traveler is never told to check the spelling of a place the app
 // simply could not ask about (first-time traveler walk, Nov 22).
-const srcUnreached = {}, srcMissing = {};   // srcMissing: asked, and the guides and maps list nothing for it
+// One rule for every "couldn't do it" message (R-18, outside test round 8a): the connection is blamed only when the phone
+// says it is offline; online, a failure is said as what it is (the service didn't answer), never "when you're online".
+const netWhy = (what, act) => typeof navigator !== "undefined" && navigator.onLine === false ? `${what} needs the internet. Try again when you're online.` : `${act} didn't go through just now. Try again in a few minutes.`;
+const srcUnreached = {}, srcMissing = {}, srcSlow = {};   // srcSlow: the helper answered too slowly while online (R-18: never blame the connection then)   // srcMissing: asked, and the guides and maps list nothing for it
 // The words of the Trip page's own button, so the message names a button the traveler can see.
 const buildAgain = n => `Tap Build the guide${n === 1 ? "" : "s"} on the Trip page`;
 function notFoundMsg(labels, again) {
   const off = labels.filter(l => srcUnreached[keyOf(l)]), miss = labels.filter(l => !srcUnreached[keyOf(l)]), out = [];
   miss.forEach(l => { srcMissing[keyOf(l)] = true; });
-  if (off.length) out.push(`I couldn't reach the travel guides and maps for ${off.join(" and ")}${typeof navigator !== "undefined" && navigator.onLine === false ? " because there's no internet right now" : ""}. Your trip is saved. ${again} when you're online.`);
+  const offline = typeof navigator !== "undefined" && navigator.onLine === false, slow = off.filter(l => !offline && srcSlow[keyOf(l)]), down = off.filter(l => !slow.includes(l));
+  // What is true is said (R-18, outside test round 8a): online, with the helper only slow, the words never blame the connection.
+  if (slow.length) out.push(`The travel guides and maps for ${slow.join(" and ")} are taking longer than usual to gather. Your trip is saved. ${again} again in a minute or two.`);
+  if (down.length) out.push(`I couldn't reach the travel guides and maps for ${down.join(" and ")}${offline ? " because there's no internet right now" : ""}. Your trip is saved. ${again}${offline ? " when you're online" : " again in a few minutes"}.`);
   if (miss.length) out.push(`I couldn't find ${miss.join(" and ")} in the travel guides and maps. Check the spelling (for example "Kotor, Montenegro"), then ${again.replace(/^./, c => c.toLowerCase())}.`);
   return out.join(" ");
 }
@@ -9693,7 +9750,12 @@ async function sourcesFor(label) {
   if (!label) return null; if (sourcesCache[label]) return sourcesCache[label];
   await helperKnown();
   srcUnreached[keyOf(label)] = true;
-  if (freeAI && navigator.onLine !== false) try { const r = await fetch(freeAI.url + "/sources?city=" + encodeURIComponent(label)); if (r.status < 500 && r.status !== 429) delete srcUnreached[keyOf(label)]; if (r.ok) { const j = await r.json(); if (j && Array.isArray(j.stops)) { kv.set("src:" + keyOf(label), j); return (sourcesCache[label] = j); } } } catch (e) {}
+  // The helper gathers a city it hasn't seen in stages and keeps each one (R-29): when it is stopped part way, or the
+  // app's own 60 s limit (R-31) ends the wait, asking again picks up where it stopped. A cold city takes up to about
+  // 220 s (Rome, Nov 24), so up to four asks (outside test round 8a: 36 of 65 trips got no guide at 60 s).
+  for (let tries = 0; tries < 4 && freeAI && navigator.onLine !== false; tries++) { let again = true;
+    try { const r = await fetch(freeAI.url + "/sources?city=" + encodeURIComponent(label)); again = r.status >= 500; if ([504, 522, 524].includes(r.status)) srcSlow[keyOf(label)] = true; if (r.status < 500 && r.status !== 429) delete srcUnreached[keyOf(label)]; if (r.ok) { const j = await r.json(); if (j && Array.isArray(j.stops)) { kv.set("src:" + keyOf(label), j); return (sourcesCache[label] = j); } } } catch (e) { if (e && /Timeout|Abort/.test(e.name || "")) srcSlow[keyOf(label)] = true; }   // slow (the wait ran out), not down
+    if (!again) break; }
   const kept = await srcKept("src:", label, j => j && Array.isArray(j.stops));
   return kept ? (sourcesCache[label] = kept) : null;
 }
@@ -10144,7 +10206,9 @@ function partsPick(s) {
 function partsList(s, start, withPlay) {
   if (!s.parts || s.parts.length < 2) return s.show && s.show.what ? `<div class="sub show">⏱ ${esc(showLine(s, start))}</div>` : "";
   const pp = partPlan(s, start == null ? 9 * 60 : start);
-  return `${s.show && s.show.what ? `<div class="sub show">⏱ ${esc(showLine(s, start))}</div>` : ""}<ol class="parts">${pp.list.map((x, i) => `<li><b>${esc(showName(x.p) || "Part " + (i + 1))}</b>${start != null ? ` <small>${fmt(x.time)}${x.wait ? " · wait " + dur(x.wait) + " for the show" : ""}</small>` : ""}${withPlay ? `${i && x.p.cue ? `<span class="cue">${esc(x.p.cue)}</span>` : ""}${x.p.stand ? `<span class="cue"><b>Stand here:</b> ${esc(x.p.stand)}</span>` : ""}<span class="pguide">${esc(unitText(x.p.guide))}</span>${x.p.lookFor ? `<span class="cue">Look for: ${esc(x.p.lookFor)}</span>` : ""}<button class="btn ghost small" data-play="part:${esc(s.id)}:${x.k}" data-label="▶ Play">▶ Play</button>` : ""}</li>`).join("")}</ol>`;
+  // The Day plan lists the places of a visit; a goodbye chapter is not one (KFarewellPart, screen rule 'points are places').
+  const list = withPlay || typeof KFarewellPart === "undefined" ? pp.list : pp.list.filter(x => !KFarewellPart.test(String(x.p.name || "").trim()));
+  return `${s.show && s.show.what ? `<div class="sub show">⏱ ${esc(showLine(s, start))}</div>` : ""}<ol class="parts">${list.map((x, i) => `<li><b>${esc(showName(x.p) || "Part " + (i + 1))}</b>${start != null ? ` <small>${fmt(x.time)}${x.wait ? " · wait " + dur(x.wait) + " for the show" : ""}</small>` : ""}${withPlay ? `${i && x.p.cue ? `<span class="cue">${esc(x.p.cue)}</span>` : ""}${x.p.stand ? `<span class="cue"><b>Stand here:</b> ${esc(x.p.stand)}</span>` : ""}<span class="pguide">${esc(unitText(x.p.guide))}</span>${x.p.lookFor ? `<span class="cue">Look for: ${esc(x.p.lookFor)}</span>` : ""}<button class="btn ghost small" data-play="part:${esc(s.id)}:${x.k}" data-label="▶ Play">▶ Play</button>` : ""}</li>`).join("")}</ol>`;
 }
 function partSpeech(s, k, first) {
   const p = s.parts[k]; if (!p) return "";
@@ -11481,8 +11545,10 @@ function pinChip() {
   pinDay(); const c = document.getElementById("cdCard"); if (!c) return pinBand();
   const was = c.classList.contains("pinned"), row = document.getElementById("dayRow");
   const at = 8 + (row && row.classList.contains("pinned") ? row.offsetHeight - 2 : 0); // pins just below the pinned day strip
-  if (!was) { const r = c.getBoundingClientRect(); if (r.height && r.top < at) { c.style.height = r.height + "px"; c.classList.add("pinned"); } }
-  else if (c.getBoundingClientRect().top >= at) { c.classList.remove("pinned"); c.style.height = ""; }
+  // Pinning leaves the card's whole box behind, width as well as height (R-28; Nov 24 feel check: the empty card shrank to
+  // no width, the buttons beside it on the phone's wrapped header moved up a line and the whole page jumped 50 px).
+  if (!was) { const r = c.getBoundingClientRect(); if (r.height && r.top < at) { if (window.__kairoutePlant !== "pinbox") c.style.width = r.width + "px"; c.style.height = r.height + "px"; c.classList.add("pinned"); } } // "pinbox": planted bug for steady-all PIN-STEADY
+  else if (c.getBoundingClientRect().top >= at) { c.classList.remove("pinned"); c.style.height = ""; c.style.width = ""; }
   pinBand();
 }
 // A pinned strip or banner never covers content (Richard, Nov 24: the LEAVE BY banner sat over a sight's name). Everything
@@ -12603,7 +12669,7 @@ function renderTrip(d) {
         ${needsLodging ? `<div class="field"><label for="f-lodging">Where you're staying in ${esc(d.destination || "this city")}</label>
           <select id="f-lodging">${opts(hotels, L.idx)}<option value="custom" ${L.idx === "custom" ? "selected" : ""}>My hotel or rental…</option></select>
           ${L.idx === "custom" ? `<div class="ask"><input type="text" id="f-lname" value="${esc(L.name || "")}" placeholder="Hotel name or address"><button type="button" class="btn small" data-act="geo" ${aiReady() || freeAI ? "" : "disabled"}>Find it</button></div>
-          <span class="hint">${L.ll ? "Found on the map: " + esc(L.name) : aiReady() || freeAI ? "Type the name and tap Find it." : "Pick an area for now. Finding your exact hotel needs the internet."}</span>` : `<span class="hint">Used for every day you're in ${esc(d.destination || "this city")}.</span>`}
+          <span class="hint">${L.ll ? "Found on the map: " + esc(L.name) : aiReady() || freeAI ? "Type the name and tap Find it." : (typeof navigator !== "undefined" && navigator.onLine === false ? "Pick an area for now. Finding your exact hotel needs the internet." : "Pick an area for now. Finding your exact hotel isn't possible just now; try again in a few minutes.")}</span>` : `<span class="hint">Used for every day you're in ${esc(d.destination || "this city")}.</span>`}
         </div>` : ""}
         <details class="more dayopts" ${d.event ? "open" : ""}><summary>More options for this day</summary>
         ${t === "port" ? `<label class="check"><input type="checkbox" id="f-stayaboard" ${d.aboard ? "checked" : ""}><span>Staying on board this day (not going ashore)</span></label>` : ""}
@@ -13554,7 +13620,7 @@ function renderPlan(d) {
   // Choose sights list, never a second list here (outside review, Nov 20: the two lists disagreed).
   const F = dayFacts(d, plan), freeOn = F && F.left >= 30 && !(plan.dropped || []).length && !(plan.w && plan.w.straight); // straight to the ship: the time to spare is margin, not free time
   const freeCard = freeOn ? `<div class="tl freetime"><div class="time"><span class="ta">Until</span><span class="tt">${fmt(F.leaveBy)}</span></div><div class="rail"><div class="dot bonusdot">+</div></div><div class="what"><div class="nm">Free time: ${dur(F.left)}</div>
-        <div class="sub">${F.fixed ? (freeAtStart(plan, F) ? `Yours to spend as you like. Nothing is planned away from here, so leave in time from wherever you go: be back at ${esc(backWhere(d, plan))} by ${fmt(F.endBy)}.` : `Yours to spend as you like. Leave here by ${fmt(F.leaveBy)} to be back by ${fmt(F.endBy)}.`) : "Yours to spend as you like."} <button type="button" class="linkbtn" data-goto="sites">See what fits</button></div></div></div>` : "";
+        <div class="sub">${F.fixed ? (noWayBack(plan, F) ? `Yours to spend as you like. Nothing is planned away from here, so leave in time from wherever you go: be back at ${esc(backWhere(d, plan))} by ${fmt(F.endBy)}.` : `Yours to spend as you like. Leave here by ${fmt(F.leaveBy)} to be back by ${fmt(F.endBy)}.`) : "Yours to spend as you like."} <button type="button" class="linkbtn" data-goto="sites">See what fits</button></div></div></div>` : "";
   let freeShown = false;
   // Free time sits where it is spent: right after the last stop or meal, before the way back with its fixed steps
   // (collecting bags, a cable car's queue down) (screen check, Nov 22: free time printed after bags were collected).
@@ -14996,10 +15062,11 @@ function lastAshoreIdx(plan) {
   its.forEach((it, k) => { if (it.type === "start" || (it.type === "fixed" && (it.up || it.head))) j = k; });
   return j;
 }
-// Free time from where the day starts, with nothing planned away from it and no ride back (an evening port call whose
-// picks are all shut, Nov 23 recheck): "leave here by 10:45 pm to be back by 10:45 pm" says nothing true; the screens say
-// to be back by the time instead, leaving in time from wherever the traveler goes.
-function freeAtStart(plan, F) { const its = (plan && plan.items) || [], j = lastAshoreIdx(plan); return !!(F && F.back === 0 && j >= 0 && its[j] && its[j].type === "start"); }
+// No way back to leave for: the leave-by would be the back-by itself ("leave by 10:45 pm to be back by 10:45 pm", an
+// evening port call whose picks are all shut, Nov 23 recheck; "leave by 3:49 am to be back by 3:49 am", free time at the
+// hotel after a small-hours train in, Nov 24 gate). One rule for every screen: a leave-by equal to the back-by is never
+// said; the screens say to be back by the time instead (on a ship, train or flight day), or that the day ends then.
+function noWayBack(plan, F) { return !!(F && F.leaveBy != null && F.endBy != null && F.leaveBy >= F.endBy); }
 const backWhere = (d, plan) => d.type === "port" ? "the ship" : d.type === "embark" ? "the cruise terminal" : (fixedPointName(d, plan) || "your " + ((typeof MODES !== "undefined" && MODES[d.mode] || {}).label || "ride").toLowerCase());
 function dayFacts(d, plan) {
   if (!d || !plan || plan.error) return null;
@@ -16305,7 +16372,7 @@ async function grpLead() {
     const { status, j } = await grpCall({ op: "new", trip: grpSnapshot(), name: trip.name || tripName(trip), live: grpLive() });
     if (status === 200 && j && j.code) { trip.groupShared = j.code; save(); grp = { code: j.code, role: "lead", token: j.token, tripId: trip.id, at: Date.now(), tripName: trip.name || tripName(trip) }; grpSave(); grpLastLive = ""; grpLastTrip = JSON.stringify(trip.days) + "|" + grpRidesSig() + "|" + grpOrdersSig(); grpNote = ""; return { code: j.code }; }
     grpNote = "The group couldn't start just now. Try again in a minute.";
-  } catch (e) { grpNote = "Starting a group needs the internet. Try again when you're online."; }
+  } catch (e) { grpNote = netWhy("Starting a group", "Starting the group"); }
   finally { grpBusy = false; render(); }
   return null;
 }
@@ -16346,7 +16413,7 @@ async function grpJoin(code) {
       grpBusy = false; render(); return { ok: true };
     }
     grpNote = status === 404 ? "That group wasn't found. Check the code with your group leader." : "Couldn't reach the group just now. Try again in a minute.";
-  } catch (e) { grpNote = "Joining needs the internet. Try again when you're online."; }
+  } catch (e) { grpNote = netWhy("Joining", "Joining the group"); }
   grpBusy = false; render(); return { ok: false };
 }
 // Follower: go where the leader is, and start the same story when the leader starts it.
@@ -16505,7 +16572,7 @@ async function grpOffer(d) {
   try { const r = await grpCall({ op: "offer", code: grp.code, who: grpWho, name: grp.me || "", dayId: d.id, day: grpOffered(d) });
     grpNote = r.status === 200 ? "Your day was offered to the group. The trip's owner can use it for everyone." : "Couldn't offer your day just now. Try again in a minute.";
     if (r.status === 200) { grp.offers = grp.offers || {}; grp.offers[d.id] = (grp.offers[d.id] || []).filter(o => o.who !== grpWho).concat([{ who: grpWho }]); grpSave(); }
-  } catch (e) { grpNote = "Offering your day needs the internet. Try again when you're online."; }
+  } catch (e) { grpNote = netWhy("Offering your day", "Offering your day"); }
   render();
 }
 // The owner uses a member's day for everyone. The group day's facts stay (same meeting point and time); if the plan
@@ -16794,7 +16861,7 @@ function stopHoursLine(it) {
   const h = it.hours; if (!h || (!h.need && !h.spans && !h.notes && !h.holiday)) return "";
   const bits = [];
   if (h.spans && h.spans.length) bits.push(`Open ${esc(spanTxt(h.spans))}${h.last != null ? `, last entry ${fmt(h.last)}` : ""}${it.wait ? " (you start at opening)" : ""}${h.seasonChange ? " (the shorter of its seasonal hours)" : ""} <small>${esc(HOURS_SRC[h.src] || h.src || "listed hours")}</small>`);
-  else if (h.unknown) bits.push(`<span class="hoursunk">Hours not confirmed</span>: planned ${fmt(h.planned[0])}–${fmt(h.planned[1])}. Check before you go`);
+  else if (h.unknown) bits.push(`<span class="hoursunk">Hours not confirmed</span>: planned as if open ${fmt(h.planned[0])}–${fmt(h.planned[1])}. Check before you go`);
   else if (h.allDay) bits.push("Open all day");
   if (h.holiday) bits.push(`${esc(h.holiday)} (public holiday): hours not confirmed`);
   (h.notes || []).filter(n => !/public holiday/.test(n)).forEach(n => bits.push(esc(n[0].toUpperCase() + n.slice(1))));
@@ -17054,7 +17121,8 @@ function alarmState(d, plan, opt) {
   }
   // Nothing planned away from the start (an evening call whose picks are all shut): no leave-by from "here" with a 0 min
   // walk; the time is the back-by, and on the day it counts down from where the traveler really is (Nov 23 recheck).
-  if (src === "plan" && now == null && plan.items && (plan.items[lastAshoreIdx(plan)] || {}).type === "start" && !(leg && leg.min > 0)) { st.nothingAway = true; st.leaveBy = backBy; }
+  // The same rule as noWayBack (day-facts.js): a leave-by that is the back-by itself is never said (Nov 24 gate).
+  if (src === "plan" && now == null && plan.items && (((plan.items[lastAshoreIdx(plan)] || {}).type === "start" && !(leg && leg.min > 0)) || (st.leaveBy != null && st.leaveBy >= backBy))) { st.nothingAway = true; st.leaveBy = backBy; }
   st.ride = point && !via ? rideBack(d, plan, st) : null;
   // On the day, leave-by is for the train or ferry you can still catch.
   if (st.ride && now != null) st.leaveBy = st.ride.leaveBy;
@@ -17284,7 +17352,7 @@ async function camLookup(file) {
   } else cands = todays.filter(s => !s.fixed).map(s => ({ name: s.name, kind: s.category || "", m: 0, site: allSites(city).find(x => x.id === s.id) || s }));
   cam.cands = cands; cam.noGps = !pos;
   if (!cands.length) { cam.busy = false; cam.msg = pos ? "I don't know any sights within a few hundred meters of you, so I can't say what this is." : "I need your location to see what's around you. Turn on location and try again."; camSheet(); return; }
-  if (!freeAI) { cam.busy = false; cam.msg = "Photo look-up needs the internet. Here's what's nearest to you:"; camSheet(); return; }
+  if (!freeAI) { cam.busy = false; cam.msg = navigator.onLine === false ? "Photo look-up needs the internet. Here's what's nearest to you:" : "Photo look-up isn't available just now. Here's what's nearest to you:"; camSheet(); return; }
   // Photo matching switched off on the helper (minimal AI, or AI off): said plainly, never sent to be refused as "busy".
   if (!aiCan("photoIdentify")) { cam.busy = false; cam.msg = "Matching a photo isn't part of this version yet. Here's what's nearest to you:"; camSheet(); return; }
   cam.msg = "Matching your photo…"; camSheet();
@@ -19560,6 +19628,10 @@ window.__kairouteGuardCheck = () => { guardAfterRender(); return window.__kairou
 // mid-afternoon", "head back early"): one rule shared by the screen check and the app, which leaves them out on a day that
 // has its own time to leave (src/main.js, planNote).
 var KScreenAdvice = /[^.\n]*\b(?:leave\s+(?:\w+\s+){0,2}?by|(?:head|come|get|be)\s+back(?:\s+\w+){0,3}?\s+(?:by|before)|return(?:\s+\w+){0,3}?\s+(?:by|before))\s+(?:the\s+)?(?:early |mid-?|late )?(?:morning|afternoon|evening|noon|lunch(?:time)?)\b[^.\n]*\.?|[^.\n]*\b(?:head|come|get) back early\b[^.\n]*\.?/i;
+// A story's goodbye chapter ("Closing", "Before you go") is something the guide says, not a place to go: the Day plan's
+// numbered points of a visit are places, so it is never listed there with a time (it still plays in the Guide). One
+// pattern for the app (main.js partsList) and the screen check ('points are places').
+var KFarewellPart = /^(?:closing|before you (?:go|leave)|farewell|goodbye)$/i;
 var KScreenRules = (function () {
 const T = s => { const m = String(s || '').trim().match(/^(\d{1,2}):(\d\d)(?:\s*([ap])m)?$/i); if (!m) return null; let h = +m[1]; if (m[3]) h = h % 12 + (m[3].toLowerCase() === 'p' ? 12 : 0); return h * 60 + +m[2]; };
 const inTxt = s => { const m = /(\d{1,2}):(\d\d)\s*([ap])m/i.exec(s || ''); return m ? T(m[0]) : null; };
@@ -19645,8 +19717,9 @@ function rules(text, info = {}) {
     if (small && info.nightDep !== 'night' && stops.length) add('S1', 'small-hours departure asked', `a ${info.time} departure ${info.nightDep ? 'this morning' : 'not yet placed'} has ${stops.length} sight(s) planned`); }
   // A time to leave that is the time to be back, from a walk of no time (Nov 23 recheck, evening port call with nothing
   // planned ashore: "Leave here by 10:45 pm to be back by 10:45 pm", "From the cruise port: walk 0 min, so leave by").
-  { const m = /Leave here by (\d{1,2}:\d\d\s*[ap]m) to be back by (\d{1,2}:\d\d\s*[ap]m)/i.exec(raw);
-    if (m && T(m[1]) != null && T(m[1]) === T(m[2])) add('S2', 'leave-by is not the back-by', `"Leave here by ${m[1]} to be back by ${m[2]}": the same time, so the words say nothing true`);
+  // Any wording counts ("Leave here by X to be back by X", "then leave by X to be back by X" in What we checked).
+  { for (const m of raw.matchAll(/leave (?:here )?by (\d{1,2}:\d\d\s*[ap]m) to be back by (\d{1,2}:\d\d\s*[ap]m)/gi))
+      if (T(m[1]) != null && T(m[1]) === T(m[2])) add('S2', 'leave-by is not the back-by', `"${m[0]}": the same time, so the words say nothing true`);
     if (/: walk 0 min, so leave by/.test(raw)) add('S2', 'leave-by is not the back-by', 'a leave-by from a walk of 0 min'); }
   // One time to head back (Nov 24, outside test round 7b: "Leave Rome by mid-afternoon" on a day whose plan leaves St Peter's
   // at 5:30 pm): on a day with a LEAVE BY, no other words tell the traveler a different, vaguer time to head back.
@@ -19737,6 +19810,18 @@ function rules(text, info = {}) {
   // The parts of a visit ("1. Arrival 11:02", "2. The climb 11:03", ...) are spread over the visit, not a minute apart.
   stops.forEach(st => { const ts = st.notes.map(l => /(\d{1,2}:\d\d\s*[ap]m)$/i.exec(l)).filter(Boolean).map(m => T(m[1])), want = dur(st.meta);
     if (ts.length >= 3 && want >= 30 && Math.max(...ts) - Math.min(...ts) < want / 4) add('S2', 'visit parts spread over the visit', `${st.name}: ${ts.length} parts timed ${clock(Math.min(...ts))} to ${clock(Math.max(...ts))} in a ${want} min visit`); });
+  // A visit's numbered points ("The fountain square 10:15 am") as the phone shows them, right under the stop's own line.
+  const ptsOf = st => { const out = []; for (const l of st.notes) { const m = /^(.*\S)\s+(\d{1,2}:\d\d\s*[ap]m)$/i.exec(l); if (!m || /^(Open|Hours|Closed|Lunch|Last entry|Arrive|Leave)\b/i.test(m[1])) { if (out.length) break; continue; } out.push(m[1].trim()); } return out; };
+  const words = t => String(t || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, ' ').trim().split(' ').filter(w => w && !/^(the|and|of|a|an|de|la|le|di|del|in|at|on|to|s)$/.test(w));
+  const namesIt = (p, n) => { const a = words(p), b = words(n); return b.length && b.every(w => a.includes(w)) && (b.length >= 2 || b[0].length >= 5); };
+  // Points are places (R-17, Nov 24, Richard's Chania screenshot: "5. Before you go 10:40 am"): a story's goodbye chapter is
+  // never listed as a place of the visit.
+  stops.forEach(st => ptsOf(st).filter(n => KFarewellPart.test(n)).forEach(n => add('S2', 'points are places', `${st.name}: "${n}" is listed as a place of the visit, but it is the guide's goodbye`)));
+  // A place once (R-16, Nov 24, same screenshot: the old-town walk's five points on the synagogue's stop and again on the
+  // walk's own stop): a place is a stop OR a point of another stop's visit, never both, and no two stops show the same walk.
+  const sv = stops.filter(s => s.key !== 'L').map(st => ({ st, pts: ptsOf(st) }));
+  sv.forEach(a => sv.forEach(b => { if (a === b) return; const p = a.pts.find(n => namesIt(n, b.st.name)); if (p) add('S2', 'a place once', `${b.st.name} is a stop of its own and also point "${p}" of ${a.st.name}`); }));
+  sv.forEach((a, i) => sv.slice(i + 1).forEach(b => { if (a.pts.length >= 2 && a.pts.join('|') === b.pts.join('|')) add('S2', 'a place once', `${a.st.name} and ${b.st.name} show the same ${a.pts.length} points (${a.pts.slice(0, 3).join(', ')}...)`); }));
   // ---- S3: readable
   const RL = raw.split('\n'), foreign = RL.filter((l, k) => SCRIPT.test(l) && !/^[A-Za-z]+(-[A-Za-z]+)+\b/.test((RL[k + 1] || '').trim()) && !/USEFUL WORDS/i.test(RL.slice(Math.max(0, k - 30), k).join(' '))); /* a phrase card shows the local words with how to say them */ if (foreign.length) add('S2', 'English letters', `"${foreign[0].trim().slice(0, 70)}"`);
   P.rides.forEach(r => r.choices.forEach(c => { if (c.min > Math.max(3 * r.min, r.min + 90)) add('S3', 'no absurd ride choice', `"${c.txt}" offered beside ${r.head}`); }));
@@ -20118,6 +20203,12 @@ function srcNamedInside(x, W) {
   }
   return false;
 }
+function srcShowName(n, area) {
+  let t = String(n || "").trim(); const a = String(area || "").trim();
+  if (a) { const m = /,\s*([^,]+)$/.exec(t); if (m && t.length > m[0].length + 2 && keyOf(m[1]) === keyOf(a)) t = t.slice(0, m.index).trim(); }
+  return t.replace(/^\p{Ll}/u, c => c.toUpperCase());
+}
+if (typeof window !== "undefined") window.__kairouteShowName = (n, a) => srcShowName(n, a);
 function srcWholeOf(s, src, all, depth) {
   const stops = (src && src.stops) || [], x = s.wd && stops.find(y => y.wd === s.wd); if (!x || !isFinite(s.lat)) return null;
   for (const id of Array.isArray(x.partOf) ? x.partOf : []) {
@@ -20128,6 +20219,12 @@ function srcWholeOf(s, src, all, depth) {
     // Its whole is itself seen inside a bigger visit (a fresco in a chapel that is seen in a museum): that visit.
     if (!(depth > 1)) { const up = srcWholeOf(Object.assign({}, W, { lat: W.lat, lng: W.lng }), src, all.filter(o => o !== s), (depth || 0) + 1); if (up) return up; }
   }
+  // A work of art that is not a building or a place outdoors (the Venus de Milo, a painting, a sculpture in a gallery),
+  // whose own whole isn't on the list, standing within 300 m of a museum that is: seen inside that museum (R-16, Paris
+  // live check Nov 24: the Venus de Milo was offered as a stop of its own next to the Louvre).
+  if (srcHas2(x, /^creative-work$/) && !srcHas2(x, /^(building|structure|monument|fountain|bridge|tower|park|garden|square|archaeological|church|chapel)$/)) {
+    const m = all.filter(o => o !== s && isFinite(o.lat) && hav(o, s) <= 0.3 && (o.wd ? srcIsMuseum(stops.find(y => y.wd === o.wd) || o) : srcIsMuseum(o))).sort((a, b) => hav(a, s) - hav(b, s))[0];
+    if (m) return m; }
   // Named inside a museum's own description, within a kilometre: that museum, when it is on the list.
   for (const W of stops) {
     if (W === x || W.lat == null || hav(W, s) > 1 || !srcIsMuseum(W) || srcNotPlace(W) || !srcNamedInside(x, W)) continue;
@@ -20207,6 +20304,8 @@ function sourceSights(city, src) {
       return !(x && k === "sites" && srcNotPlace(x)); }); }
   const centre = srcCentre(city, src); if (!centre) return 0;
   const area = String(src.area || city.city).replace(/\s*\(.*\)/, "");
+  // Saved source sights take today's name rule too (R-30: saved content passes today's rules when opened).
+  for (const s of allSites(city)) if (s.srcOnly && !s.localOnly && s.name) s.name = srcShowName(s.name, area.split(",")[0].trim());
   // The caps count the written guide and the sources' own sights, never the famous places written in (famousFix): those
   // come back from the device before this runs offline but arrive after it online, and must not change what's added.
   const own = () => (city.sites || []).filter(x => !x.famousFix);
@@ -20217,9 +20316,13 @@ function sourceSights(city, src) {
   const cands = src.stops.filter(x => worthy(x) && ((x.src || []).length >= need || (x.sl || 0) >= SRC_WORLD) && x.lat != null && x.name && keyOf(x.name) !== keyOf(area) && hav(x, centre) <= (srcFamed(x) && (x.sl || 0) >= 60 ? SRC_R_FAMED : SRC_R))
     .sort((a, b) => score(b) - score(a));
   let n = 0;
+  // A name as a guide prints it (R-11, Paris live check Nov 24): a capital first letter ("place de la Concorde" is
+  // Place de la Concorde), and no encyclopedia title's ", City" after it when that is this city ("Hôtel de Ville, Paris").
+  const areaWords = String(area || city.city || "").split(",")[0].trim();
+  const showN = n => srcShowName(n, areaWords);
   const make = (x, extra) => {
     const [, cat, min0] = srcKindOf(x), q = !extra.far && cat === "Landmark" && (x.sl || 0) < SRC_WIDE, min = srcMinutes(cat, min0, x.sl);
-    const st = normSite({ id: "src-" + (x.wd || keyOf(x.name).replace(/ /g, "-")), name: x.name, lat: x.lat, lng: x.lng, minutes: q ? 10 : min, category: cat, summary: srcSummary(x, cat, area), web: x.web, kind: "touristy", quick: q }, 0);
+    const st = normSite({ id: "src-" + (x.wd || keyOf(x.name).replace(/ /g, "-")), name: showN(x.name), lat: x.lat, lng: x.lng, minutes: q ? 10 : min, category: cat, summary: srcSummary(x, cat, area), web: x.web, kind: "touristy", quick: q }, 0);
     Object.assign(st, { srcOnly: true, fame: x.sl || 0, unesco: !!x.unesco, heritage: !!x.heritage, src: x.src || [], local: x.local, wd: x.wd }, extra);
     // The helper's sources disagree on where it is and nothing settles it: said so on its card and on rides to it.
     if (x.posDoubt) st.posDoubt = true;
@@ -20553,13 +20656,51 @@ const scriptFor = (s, city) => { if (!(s && city)) return s && city; scriptMemoF
 const scriptForKey = (s, city) => { const k = (city.city || "") + "\u0000" + s.name + " " + (s.local || "");
   if (scriptMemo.site.has(k)) return scriptMemo.site.get(k);
   const v = STOP_SCRIPTS.find(sc => sc.city.test(city.city || "") && sc.site.test(s.name + " " + (s.local || ""))); scriptMemo.site.set(k, v); return v; };
+// ONE STORY, ONE STOP (rules registry R-16, Nov 24: Richard's Chania screenshot showed the old-town walk's five
+// chapters on two stops in a row, the Etz Hayyim Synagogue and the old-town walk, because the story's pattern names
+// the synagogue so it can be found under any of its names). A story is about one place: of the sights its pattern
+// matches, it goes only to the one it is about, the sight whose name is most of the story's title (a sight named by
+// one of the story's chapters is a stop on the walk, not the walk). Every other sight keeps its own words. A sight a
+// story's chapter is named for, close to the story's own stop, is ON THAT WALK (s.onWalk): the planner folds it into
+// the walk when both are planned the same day, so the walk is never told twice.
+const SCRIPT_SKIP = new Set(["the", "and", "of", "a", "an", "de", "la", "le", "di", "del", "della", "in", "at", "on", "to", "s"]);
+const scriptWords = t => String(t || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, " ").trim().split(" ").filter(w => w && !SCRIPT_SKIP.has(w));
+// A chapter is named for the sight: the chapter's name holds the sight's whole name, word for word ("Kastelli hill"
+// for "Kastelli"; "Etz Hayyim Synagogue" for itself).
+const scriptPartFor = (sc, s) => { const n = scriptWords(s.name); if (!n.length) return -1;
+  return sc.parts.findIndex(p => { const w = scriptWords(p.name); return w.length && n.every(x => w.includes(x)) && (n.length >= 2 || n[0].length >= 5); }); };
+// How much of the story's title the sight's name is (0 to 1).
+const scriptTitleFit = (sc, s) => { const t = new Set(scriptWords(sc.title + " " + (sc.where || ""))), n = scriptWords(s.name); return n.length ? n.filter(w => t.has(w)).length / n.length : 0; };
+const SCRIPT_WALK_KM = 1; // a chapter's sight further than this from the story's stop is another place of that name
+// The sight a story belongs to, of those its pattern matches: the best fit to its title, a chapter's own sight only when
+// no other fits; none when the only matches are chapters' sights (the synagogue alone never gets the whole old-town walk).
+function scriptOwner(sc, cands) {
+  const r = cands.map(s => ({ s, fit: scriptTitleFit(sc, s), part: scriptPartFor(sc, s) >= 0 }))
+    .sort((a, b) => (a.part - b.part) || (b.fit - a.fit) || ((b.s.minutes || 0) - (a.s.minutes || 0)) || String(a.s.id).localeCompare(String(b.s.id)));
+  const best = r[0]; return best && (!best.part || best.fit > 0) ? best.s : null;
+}
+var scriptOwnMemo = new WeakMap(); // city -> { sig, owner: script id -> site, walk: site -> [owner ids] }
+function scriptOwners(city) {
+  const sites = city.sites || [], sig = scriptMemo.n + "|" + (city.city || "") + "|" + sites.map(s => s.id + "~" + s.name + "~" + (s.local || "")).join("|");
+  const kept = scriptOwnMemo.get(city); if (kept && kept.sig === sig) return kept;
+  const by = new Map(); for (const s of sites) { const sc = scriptFor(s, city); if (sc) { if (!by.has(sc)) by.set(sc, []); by.get(sc).push(s); } }
+  const owner = new Map(), walk = new Map();
+  for (const [sc, cands] of by) { const o = scriptOwner(sc, cands); if (!o) continue; owner.set(sc.id, o);
+    for (const s of sites) if (s !== o && isFinite(+s.lat) && isFinite(+o.lat) && hav(s, o) <= SCRIPT_WALK_KM && scriptPartFor(sc, s) >= 0) { if (!walk.has(s)) walk.set(s, []); walk.get(s).push(o.id); } }
+  const out = { sig, owner, walk }; scriptOwnMemo.set(city, out); return out;
+}
 // Puts the script on the stop as its parts (the same parts the voice tour and the day plan already show). The AI
 // walk-through never rewrites a stop with a script. Cheap and safe to call often.
 function scriptStops(city) {
   if (!city || !STOP_SCRIPTS || !scriptMemo) return; scriptMemoFresh();
   const ck = city.city || ""; let any = scriptMemo.city.get(ck); if (any === undefined) scriptMemo.city.set(ck, any = STOP_SCRIPTS.some(sc => sc.city.test(ck))); if (!any) return;
+  const own = scriptOwners(city);
   for (const s of city.sites || []) {
-    const sc = scriptFor(s, city); if (!sc || s.scriptV === sc.id + sc.v) continue;
+    const w = own.walk.get(s); if (w) s.onWalk = w.slice(); else if (s.onWalk) delete s.onWalk;
+    const sc0 = scriptFor(s, city), sc = sc0 && own.owner.get(sc0.id) === s ? sc0 : null;
+    // A sight given a story it isn't about (a saved trip from before this rule) gets its own words back.
+    if (!sc) { if (s.scriptV) { delete s.parts; delete s.scriptV; s.partsOff = []; delete s.extrasV; } continue; }
+    if (s.scriptV === sc.id + sc.v) continue;
     s.parts = sc.parts.map(p => ({ name: p.name, spot: true, local: "", lat: s.lat, lng: s.lng, minutes: p.minutes, stand: p.stand, next: "", guide: p.paras.join("\n\n"), lookFor: "" }));
     s.partsOff = []; s.intro = ""; s.wrap = ""; s.extrasV = 99; s.scriptV = sc.id + sc.v;
     if (sc.show) s.show = Object.assign({ part: null }, sc.show);
@@ -20642,7 +20783,7 @@ updateAudioUI = function () {
     const st = b.parentElement.querySelector(".state"); if (st) st.textContent = on ? (ttsState === "starting" ? "Starting…" : `Playing${voiceNow ? " · " + voiceNow : ""}`) : ""; });
 };
 if (typeof window !== "undefined" && typeof document !== "undefined") setTimeout(scriptDemo, 200);
-if (typeof window !== "undefined") window.__kairouteScripts = { STOP_SCRIPTS, voices: GUIDES.map(g => g[3]), sayText, scriptStops, speech: (s, k) => partSpeech(s, k, true), play: s => speakSite(s), state: () => ({ speakingId, ttsState, voiceNow }) };
+if (typeof window !== "undefined") window.__kairouteScripts = { STOP_SCRIPTS, stops: c => { scriptStops(c); return (c.sites || []).map(s => ({ id: s.id, story: s.scriptV || '', onWalk: s.onWalk || null })); }, owners: c => { const o = scriptOwners(c); return { owner: [...o.owner].map(([k, v]) => [k, v.id]), walk: [...o.walk].map(([k, v]) => [k.id, v]) }; }, voices: GUIDES.map(g => g[3]), sayText, scriptStops, speech: (s, k) => partSpeech(s, k, true), play: s => speakSite(s), state: () => ({ speakingId, ttsState, voiceNow }) };
 // Generated by stories/tools/to-app.mjs from the checked story library (stories/). Do not edit by hand: change the
 // story, run the checks, then run the tool again. Each story plays like a hand-written script (stop-scripts.js), in the
 // traveler's guide voice, and shows where its facts come from.
@@ -22017,6 +22158,8 @@ function engineBucket(withOld) {
     ...(s.posDoubt ? { posDoubt: true } : {}), // where it is isn't sure (its sources disagree): every ride to or from it says so
     access: [s.access, s.tickets, s.howToSee].filter(x => typeof x === "string").join(" ").slice(0, 300), // e.g. "viewed from the water"
     tags: sightTags(city, s), // step 4: every label the app sorts and shows by (same rules as the screens)
+    // A sight a story's walk stops at (stop-scripts.js, one story one stop): planned the same day, it is seen on that walk.
+    ...(Array.isArray(s.onWalk) && s.onWalk.length ? { onWalk: s.onWalk.map(String) } : {}),
     in: typeof inArea === "function" ? allSites(city).filter(a => a !== s && inArea(s, a)).map(a => a.id) : [] // the map areas it stands in (groups, step 3)
   });
   trip.days.forEach((d, i) => {
@@ -22333,4 +22476,4 @@ render();
 
 </script>
 <script>if ("serviceWorker" in navigator) addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));</script>
-<script>(function(){var B="de7cba02-1795522279";function ep(v){return +String(v).split("-").pop()||0}function busy(){return document.body&&document.body.classList.contains("touring-on")}function chk(){if(location.protocol!=="https:"||document.visibilityState!=="visible")return;fetch("version.txt",{cache:"no-store"}).then(function(r){return r.ok?r.text():""}).then(function(t){t=t.trim();if(!t||t===B||ep(t)<=ep(B)||busy())return;var k="kairoute.reloadedTo",s="";try{s=sessionStorage.getItem(k)||"";sessionStorage.setItem(k,t)}catch(e){}if(s===t){var u=new URL(location.href);if(u.searchParams.get("v")===t)return;u.searchParams.set("v",t);location.replace(u.href)}else location.reload()}).catch(function(){})}addEventListener("load",chk);addEventListener("pageshow",function(e){if(e.persisted)chk()});addEventListener("focus",chk);document.addEventListener("visibilitychange",chk);setInterval(chk,300000);if(navigator.serviceWorker)navigator.serviceWorker.addEventListener("message",function(e){if(e.data&&e.data.type==="kairoute-sw"){try{e.source.postMessage({type:"kairoute-alive"})}catch(x){}chk()}})})();</script>
+<script>(function(){var B="b587c097-1795542403";function ep(v){return +String(v).split("-").pop()||0}function busy(){return document.body&&document.body.classList.contains("touring-on")}function chk(){if(location.protocol!=="https:"||document.visibilityState!=="visible")return;fetch("version.txt",{cache:"no-store"}).then(function(r){return r.ok?r.text():""}).then(function(t){t=t.trim();if(!t||t===B||ep(t)<=ep(B)||busy())return;var k="kairoute.reloadedTo",s="";try{s=sessionStorage.getItem(k)||"";sessionStorage.setItem(k,t)}catch(e){}if(s===t){var u=new URL(location.href);if(u.searchParams.get("v")===t)return;u.searchParams.set("v",t);location.replace(u.href)}else location.reload()}).catch(function(){})}addEventListener("load",chk);addEventListener("pageshow",function(e){if(e.persisted)chk()});addEventListener("focus",chk);document.addEventListener("visibilitychange",chk);setInterval(chk,300000);if(navigator.serviceWorker)navigator.serviceWorker.addEventListener("message",function(e){if(e.data&&e.data.type==="kairoute-sw"){try{e.source.postMessage({type:"kairoute-alive"})}catch(x){}chk()}})})();</script>
