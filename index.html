@@ -2113,6 +2113,11 @@ if (typeof module !== "undefined") module.exports = KEngine;
   E.makeTravel = (prefs, legModes, legs, lines, answers, piers, routes) => {
     const walk = (prefs && prefs.walk) || "medium", lim = WALK_LIMIT[walk] || WALK_LIMIT.medium, speed = walk === "low" ? 3.6 : 4.5, modes = legModes || {}, memo = new Map(), memoEnd = new Map(), memoBags = new Map(), memoFixed = new Map();
     const walkMinOf = km => Math.max(1, Math.round(km * 1.3 / speed * 60));
+    // The street routes known so far, both ways round, for rides near them (see calc): asked of the app once per travel.
+    let nearList = null; const knownNear = () => { if (nearList) return nearList.length ? nearList : null; nearList = [];
+      const all = typeof routes === "function" && typeof routes.known === "function" ? routes.known() || [] : [];
+      for (const r of all) if (r && E.hasPos(r.a) && E.hasPos(r.b) && (r.car || r.foot)) { nearList.push(r); nearList.push({ a: r.b, b: r.a, car: r.car, foot: r.foot }); }
+      return nearList.length ? nearList : null; };
     // The traveler's ride choice belongs to the two places, whichever way the day goes between them (Nov 18: the train
     // picked between two trips out was lost when the day ran them the other way round). A choice also holds for a ride close
     // enough to it (E.nearRide); one made the same way round wins, then the closest.
@@ -2216,7 +2221,15 @@ if (typeof module !== "undefined") module.exports = KEngine;
       // guess: up a hill, round a harbour or over a mountain road it is far short (real-world check, Nov 24: a taxi over a
       // mountain road planned 23 min, 42-50 by road; a walk to an island planned 18 min straight over the water, 55 over the
       // bridge). A known route is never made shorter than the guess, which stays the floor.
-      const rt = !pinned && typeof routes === "function" ? routes(a, b) || null : null;
+      let rt = !pinned && typeof routes === "function" ? routes(a, b) || null : null;
+      // No route asked for these two points yet, but one known for a ride with both ends close by (the lunch place next
+      // door to one already timed, the same hill from another hotel): that one, with the walk or drive between the ends,
+      // never the straight-line guess. Else a place not yet asked always looks nearer than one the map has timed, and the
+      // plan keeps choosing the untimed one (live check, Nov 25, Kotor: lunch moved from a timed restaurant to the one
+      // next door, and the ride down the mountain went back to the 27 min guess, about an hour by road).
+      if (!pinned && !rt && knownNear()) { const n = E.nearRide(a, b, knownNear(), r => [r.a, r.b]);
+        if (n) { const add = (E.hav(a, n.A) + E.hav(b, n.B)) * 1.3, x = n.x;
+          rt = { near: true, car: x.car ? { km: x.car.km + add, min: x.car.min + E.nearGap(a, b, n, true) } : null, foot: x.foot ? { km: x.foot.km + add } : null }; } }
       // A router answer far beyond any real road (more than 10 times the straight line and 20 km) is a wrong snap across a
       // harbour or onto another road, never a route: it is left out and the guess stands.
       const sane = r => r.km <= d * 10 + 20;
@@ -13333,6 +13346,11 @@ async function fetchRoutes(legs, then) {
 // ride shorter than the guess). routeTimeOf(a, b) gives { foot: { km }, car: { km, min } } as known so far.
 const rtMem = new Map(), rtAsked = new Set(); let rtQueue = [], rtBusy = false;
 const rtKey = (m, a, b) => m + ":" + (+a.lat).toFixed(4) + "," + (+a.lng).toFixed(4) + ">" + (+b.lat).toFixed(4) + "," + (+b.lng).toFixed(4);
+// Every street route known so far, as { a, b, car, foot } (R-33: the engine times a ride near a known one from it).
+function routeKnown() { const by = new Map();
+  for (const [k, v] of rtMem) { const m = /^(foot|car):(-?[\d.]+),(-?[\d.]+)>(-?[\d.]+),(-?[\d.]+)$/.exec(k); if (!m || !v || !isFinite(v.km)) continue; const pk = m.slice(2).join(",");
+    const r = by.get(pk) || { a: { lat: +m[2], lng: +m[3] }, b: { lat: +m[4], lng: +m[5] }, car: null, foot: null }; r[m[1]] = v; by.set(pk, r); }
+  return [...by.values()]; }
 function routeTimeOf(a, b) { const f = rtMem.get(rtKey("foot", a, b)), c = rtMem.get(rtKey("car", a, b)); return f || c ? { foot: f || null, car: c || null } : null; }
 async function askRouteTimes(pairs) {
   for (const [m, a, b] of pairs) { const k = rtKey(m, a, b); if (rtAsked.has(k) || rtMem.has(k)) continue; rtAsked.add(k);
@@ -22446,6 +22464,7 @@ if (typeof window !== "undefined" && window.ENGINE2 && window.KEngine) (function
     bucket.days = bucket.days.map((x, i) => i === ai ? Object.assign({}, x, { alone: true }) : x);
     bucket.answers = (a, b) => answerOf(a, b);
     bucket.routes = (a, b) => typeof routeTimeOf === "function" ? routeTimeOf(a, b) : null;
+    if (typeof routeKnown === "function") bucket.routes.known = routeKnown;
     let plans; try { plans = E.planTrip(bucket); } catch (e) { console.warn("Beta 2 engine", e); plans = []; }
     const mm = { k, plans, bucket, used: new Map() }; recentAlone.set(k, mm); if (recentAlone.size > 40) recentAlone.delete(recentAlone.keys().next().value); return mm;
   }
@@ -22474,6 +22493,7 @@ if (typeof window !== "undefined" && window.ENGINE2 && window.KEngine) (function
     bucket.answers = (a, b) => { const r = answerOf(a, b); used.set(a.lat + "," + a.lng + ">" + b.lat + "," + b.lng, { a, b, sig: answerSig(a, b) }); return r; };
     // Real routes known so far: a route arriving replans only when the plans asked for that pair (see answers above).
     bucket.routes = (a, b) => { const r = typeof routeTimeOf === "function" ? routeTimeOf(a, b) : null; used.set("r|" + a.lat + "," + a.lng + ">" + b.lat + "," + b.lng, { a, b, route: true, sig: JSON.stringify(r) }); return r; };
+    if (typeof routeKnown === "function") bucket.routes.known = routeKnown;
     let plans; try { plans = E.planTrip(bucket); } catch (e) { console.warn("Beta 2 engine", e); plans = []; }
     askRoutes(plans);
     // A day still on the app's own seeding (the traveler hasn't ticked or unticked anything there) shows what the
@@ -22595,4 +22615,4 @@ render();
 
 </script>
 <script>if ("serviceWorker" in navigator) addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));</script>
-<script>(function(){var B="f0820bca-1795624846";function ep(v){return +String(v).split("-").pop()||0}function busy(){return document.body&&document.body.classList.contains("touring-on")}function chk(){if(location.protocol!=="https:"||document.visibilityState!=="visible")return;fetch("version.txt",{cache:"no-store"}).then(function(r){return r.ok?r.text():""}).then(function(t){t=t.trim();if(!t||t===B||ep(t)<=ep(B)||busy())return;var k="kairoute.reloadedTo",s="";try{s=sessionStorage.getItem(k)||"";sessionStorage.setItem(k,t)}catch(e){}if(s===t){var u=new URL(location.href);if(u.searchParams.get("v")===t)return;u.searchParams.set("v",t);location.replace(u.href)}else location.reload()}).catch(function(){})}addEventListener("load",chk);addEventListener("pageshow",function(e){if(e.persisted)chk()});addEventListener("focus",chk);document.addEventListener("visibilitychange",chk);setInterval(chk,300000);if(navigator.serviceWorker)navigator.serviceWorker.addEventListener("message",function(e){if(e.data&&e.data.type==="kairoute-sw"){try{e.source.postMessage({type:"kairoute-alive"})}catch(x){}chk()}})})();</script>
+<script>(function(){var B="c657a812-1795651316";function ep(v){return +String(v).split("-").pop()||0}function busy(){return document.body&&document.body.classList.contains("touring-on")}function chk(){if(location.protocol!=="https:"||document.visibilityState!=="visible")return;fetch("version.txt",{cache:"no-store"}).then(function(r){return r.ok?r.text():""}).then(function(t){t=t.trim();if(!t||t===B||ep(t)<=ep(B)||busy())return;var k="kairoute.reloadedTo",s="";try{s=sessionStorage.getItem(k)||"";sessionStorage.setItem(k,t)}catch(e){}if(s===t){var u=new URL(location.href);if(u.searchParams.get("v")===t)return;u.searchParams.set("v",t);location.replace(u.href)}else location.reload()}).catch(function(){})}addEventListener("load",chk);addEventListener("pageshow",function(e){if(e.persisted)chk()});addEventListener("focus",chk);document.addEventListener("visibilitychange",chk);setInterval(chk,300000);if(navigator.serviceWorker)navigator.serviceWorker.addEventListener("message",function(e){if(e.data&&e.data.type==="kairoute-sw"){try{e.source.postMessage({type:"kairoute-alive"})}catch(x){}chk()}})})();</script>
