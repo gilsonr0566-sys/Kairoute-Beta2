@@ -1696,7 +1696,7 @@ var KEngine = typeof KEngine !== "undefined" ? KEngine : {};
       if ((yi > lat) !== (yj > lat) && lng < (xj - xi) * (lat - yi) / (yj - yi) + xi) inside = !inside; }
     return inside; };
   E.islandAt = (shapes, pt) => {
-    if (!Array.isArray(shapes) || !pt || !E.fin(+pt.lat) || !E.fin(+pt.lng)) return null;
+    if (!Array.isArray(shapes) || !pt || !E.fin(pt.lat) || !E.fin(pt.lng)) return null;
     const lat = +pt.lat, lng = +pt.lng; let best = null, ba = Infinity;
     for (const s of shapes) for (const f of (s && s.rings) || []) { if (!Array.isArray(f) || f.length < 8) continue; const b = boxOf(f);
       if (lat < b.s || lat > b.n || lng < b.w || lng > b.e || b.a >= ba) continue;
@@ -1891,7 +1891,7 @@ if (typeof module !== "undefined") module.exports = KEngine;
       // the water from itself (Nov 24 Venice build: the cruise terminal's own islet came back as "no way there on foot").
       // Only an island EVERY day of the place starts from: a stay on an island no path reaches, with another day starting on
       // the main island, keeps it across the water (a boat from there; independent review of cce49f79).
-      const isleOf = p => p && E.fin(+p.lat) && E.fin(+p.lng) ? ((E.islandAt(P.islands && P.islands.shapes, p) || {}).id || "-") : null;
+      const isleOf = p => p && E.fin(p.lat) && E.fin(p.lng) ? ((E.islandAt(P.islands && P.islands.shapes, p) || {}).id || "-") : null;
       const dayHomes = (b.days || []).filter(d => d.city === key).map(d => [d.point, d.lodging, d.hotel].map(isleOf).filter(Boolean)).filter(h => h.length);
       const homes = new Set(dayHomes.length ? dayHomes[0].filter(id => id !== "-" && dayHomes.every(h => h.every(x => x === id))) : []);
       const across = s => { if (!s || s.acrossWater || !P.islands || !Array.isArray(P.islands.shapes)) return;
@@ -2126,7 +2126,7 @@ if (typeof module !== "undefined") module.exports = KEngine;
   // the start of a day keeps the full gap too: the cautious side.
   E.toFixedEnd = b => !!(b && (b.backToShip || b.deadline || b.fixed));
   E.expectWait = (o, toDeadline) => {
-    if (!o || !o.noTimetable || toDeadline || (Array.isArray(o.deps) && o.deps.length) || !(+o.every > 0) || !E.fin(+o.wait)) return o;
+    if (!o || !o.noTimetable || toDeadline || (Array.isArray(o.deps) && o.deps.length) || !(+o.every > 0) || !E.fin(o.wait)) return o;
     const w = Math.round(Math.min(+o.every, 60) / 2) + (o.mode === "ferry" ? 10 : 3);
     return w < +o.wait ? Object.assign({}, o, { wait: w, min: o.min - (+o.wait - w), waitMax: +o.wait, minMax: o.min }) : o; };
   E.UNKNOWN_RIDE = 45; // minutes for a ride to or from a place not on the map: a guess, said as one
@@ -4606,7 +4606,7 @@ if (typeof module !== "undefined") module.exports = KEngine;
     const keys = Object.keys(modes); if (!keys.length) return modes;
     const pts = []; const seen = new Set(), dig = (x, depth) => { if (!x || typeof x !== "object" || depth > 12 || seen.has(x)) return; seen.add(x);
       if (Array.isArray(x)) { for (const y of x) dig(y, depth + 1); return; }
-      if (x.lat != null && x.lng != null && E.fin(+x.lat) && E.fin(+x.lng)) pts.push({ lat: +x.lat, lng: +x.lng });
+      if (x.lat != null && x.lng != null && E.fin(x.lat) && E.fin(x.lng)) pts.push({ lat: +x.lat, lng: +x.lng });
       for (const k in x) if (typeof x[k] === "object") dig(x[k], depth + 1); };
     // (the trip-wide lists of road times, piers and ferry links name every city's spots: a ride from one of them starts at a
     // place of the group's own, so only the group's own facts are read)
@@ -6090,7 +6090,7 @@ var KEngine = typeof KEngine !== "undefined" ? KEngine : {};
       if ((yi > lat) !== (yj > lat) && lng < (xj - xi) * (lat - yi) / (yj - yi) + xi) inside = !inside; }
     return inside; };
   E.islandAt = (shapes, pt) => {
-    if (!Array.isArray(shapes) || !pt || !E.fin(+pt.lat) || !E.fin(+pt.lng)) return null;
+    if (!Array.isArray(shapes) || !pt || !E.fin(pt.lat) || !E.fin(pt.lng)) return null;
     const lat = +pt.lat, lng = +pt.lng; let best = null, ba = Infinity;
     for (const s of shapes) for (const f of (s && s.rings) || []) { if (!Array.isArray(f) || f.length < 8) continue; const b = boxOf(f);
       if (lat < b.s || lat > b.n || lng < b.w || lng > b.e || b.a >= ba) continue;
@@ -6543,7 +6543,7 @@ if (typeof module !== "undefined") module.exports = KEngine;
   };
   const checkedFind = (place, city, L) => {
     if (!BYNAME) { BYNAME = new Map(); L.forEach(c => [c.name].concat(c.aka || []).forEach(n => { const k = fold(n); if (k) (BYNAME.get(k) || BYNAME.set(k, []).get(k)).push(c); })); }
-    const here = E.fin(+place.lat) && E.fin(+place.lng) && (+place.lat || +place.lng) ? { lat: +place.lat, lng: +place.lng } : null, town = fold(city);
+    const here = E.fin(place.lat) && E.fin(place.lng) && (+place.lat || +place.lng) ? { lat: +place.lat, lng: +place.lng } : null, town = fold(city);
     const near = (c, km) => here && c.lat != null ? E.hav(here, c) <= km : null;
     // Same name: in the same town (or within 15 km when the town isn't named the same way).
     for (const c of BYNAME.get(fold(place.name)) || []) { const d = near(c, 15); if (d === true || (d === null && town && (" " + town + " ").includes(" " + fold(c.city) + " "))) return c; }
@@ -7410,10 +7410,10 @@ const pairKey = (a, b) => pkOf(a) + "," + pkOf(b);
 // Timetables differ on weekdays, Saturdays and Sundays: the plan's own day picks which.
 let dowMemo = { k: undefined, v: 3 };
 const planDow = () => { const k = typeof planDate !== "undefined" ? planDate : null; if (dowMemo.k === k) return dowMemo.v;
-  const t = k ? Date.parse(k + "T12:00:00Z") : NaN, v = isFinite(t) ? new Date(t).getUTCDay() : 3; dowMemo = { k, v }; return v; };
+  const t = k ? Date.parse(k + "T12:00:00Z") : NaN, v = KEngine.fin(t) ? new Date(t).getUTCDay() : 3; dowMemo = { k, v }; return v; };
 const dayKind = dow => dow === 0 ? "su" : dow === 6 ? "sa" : "wk";
 // Seasonal lines (a summer ferry) are offered only in the months they run, against the plan's own date.
-const runsThen = o => { if (!o || !Array.isArray(o.months) || !o.months.length) return true; const t = typeof planDate !== "undefined" && planDate ? Date.parse(planDate + "T12:00:00Z") : NaN; return !isFinite(t) || o.months.includes(new Date(t).getUTCMonth() + 1); };
+const runsThen = o => { if (!o || !Array.isArray(o.months) || !o.months.length) return true; const t = typeof planDate !== "undefined" && planDate ? Date.parse(planDate + "T12:00:00Z") : NaN; return !KEngine.fin(t) || o.months.includes(new Date(t).getUTCMonth() + 1); };
 // A saved timetable for a trip close enough to this one, by the engine's one "close enough" rule (KEngine.nearRide:
 // each end within a tenth of the ride, 600 m at least), so a day re-planned from where the traveler stands (GPS) still
 // knows the trains, with no signal. The borrowed answer's times get the time to reach its ends added (transitFor).
@@ -7453,7 +7453,7 @@ function borrowGap(a, b, hit, exact, opts) { if (hit === exact) return opts; con
 // A nearby ride's kept answer, its times with the gap added (kept with a partial new answer for this ride).
 function nearWithGap(a, b, kind) { const m = transitNear(a, b, kind); return m ? { opts: borrowGap(a, b, m, null, m.opts || []) } : null; }
 function transitFor(a, b) {
-  if (!a || !b || !isFinite(a.lat) || !isFinite(b.lat) || hav(a, b) < 1.5) return null; // city rides too: a bus or metro across town is a real choice (Nov 16)
+  if (!a || !b || !KEngine.fin(a.lat) || !KEngine.fin(b.lat) || hav(a, b) < 1.5) return null; // city rides too: a bus or metro across town is a real choice (Nov 16)
   const dow = planDow(), k = pairKey(a, b) + "|" + dayKind(dow), exact = transitMem[k] || transitMem[pairKey(a, b)], hit = exact && exact.opts && exact.opts.length ? exact : (exact ? nearOnce(exact, a, b, dayKind(dow)) : transitNear(a, b, dayKind(dow))) || exact; // an empty exact answer never hides a nearby one's lines
   if (transitSeen) transitSeen.push([k, pairKey(a, b), a, b, dayKind(dow)]); // the offline check lists every ride a plan looks up
   // Used meanwhile, and asked again when online: an answer from an older version (at once), one given while a source
@@ -7595,7 +7595,7 @@ function switchRide(key, val, force) {
   const before = buildPlan(d); older.forEach(k => delete trip.legModes[k]); trip.legModes[key] = val; const after = buildPlan(d);
   // The ride between the same two places, whichever way the day now runs and even from a stop next door (the lunch
   // place, a sight beside it): the engine applies the choice to it (Nov 18, Sorrento and Pompeii).
-  const kp = String(key).split(",").map(Number), tol = kp.length === 4 ? Math.max(1.5, hav({ lat: kp[0], lng: kp[1] }, { lat: kp[2], lng: kp[3] }) / 5) : 1.5, near2 = (x, i) => x && isFinite(x.lat) && hav({ lat: kp[i], lng: kp[i + 1] }, x) <= tol;
+  const kp = String(key).split(",").map(Number), tol = kp.length === 4 ? Math.max(1.5, hav({ lat: kp[0], lng: kp[1] }, { lat: kp[2], lng: kp[3] }) / 5) : 1.5, near2 = (x, i) => x && KEngine.fin(x.lat) && hav({ lat: kp[i], lng: kp[i + 1] }, x) <= tol;
   // Out and back between the same two places are two rides: the one tapped is found by its own key first, then the same
   // way round from nearby, and only then the other way round (Nov 18: the ferry back couldn't be picked once the train
   // was taken out, because the check found the ride out).
@@ -7638,10 +7638,10 @@ function depLine(o, start, endBy, back, slack) {
   if (!o.deps || !o.deps.length) return o.noTimetable ? (o.waitMax > o.wait ? ` No published timetable found for this ${o.kind.toLowerCase()}: planned with about ${dur(o.wait)} of waiting and boarding (half the usual gap between departures); up to ${dur(o.waitMax)} if you just miss one. Check the ${o.kind.toLowerCase()} timetable before you go.` : ` No published timetable found for this ${o.kind.toLowerCase()}: planned with a full gap between departures. Check the ${o.kind.toLowerCase()} timetable before you go.`) : "";
   // A departure is named only when it is the one this plan takes (within the hour): a sample's far-off departure reads
   // as "no train until then" (Round 2 re-check 5: "Next departure about 8:31 pm" on a 7:30 am train).
-  const at = start + o.access.min, nx0 = isFinite(start) ? o.deps.find(d => d.t >= at) : null, nx = nx0 && nx0.t - at <= 60 ? nx0 : null;
+  const at = start + o.access.min, nx0 = KEngine.fin(start) ? o.deps.find(d => d.t >= at) : null, nx = nx0 && nx0.t - at <= 60 ? nx0 : null;
   const ev = knownEvery(o);
   let t = nx ? ` Next departure about ${fmt(nx.t)}${when}.` : ev ? ` Departures about every ${dur(ev)}${when}.` : "";
-  if (back && isFinite(endBy)) { const ok = safeDeps(o, endBy, slack); if (ok.length) t += ` <b>Last safe departure back: ${fmt(ok[ok.length - 1].t)}.</b>`; }
+  if (back && KEngine.fin(endBy)) { const ok = safeDeps(o, endBy, slack); if (ok.length) t += ` <b>Last safe departure back: ${fmt(ok[ok.length - 1].t)}.</b>`; }
   return t;
 }
 // How to pay on a public ride, from the city's guide (only where the guide says so; nothing is assumed for other cities).
@@ -7854,7 +7854,7 @@ function bumpWhy(d, b) {
 // numbers"; Richard, Nov 22: every reason on screen traces to real data).
 // A lunch brought along and eaten during a long visit (the planner times it inside the visit, around midday).
 function lunchInLine(s) {
-  const L = s && s.lunchIn; if (!L || !isFinite(L.at)) return s && s.lunchSay ? `<div class="sub lunchin">${esc(s.lunchSay)}</div>` : "";
+  const L = s && s.lunchIn; if (!L || !KEngine.fin(L.at)) return s && s.lunchSay ? `<div class="sub lunchin">${esc(s.lunchSay)}</div>` : "";
   const buy = L.packed && typeof packedWords === "function" ? packedWords(L) : "";
   return `<div class="sub lunchin">Lunch during this visit: bring your own, eat about ${fmt(L.at)} (${dur(L.min || 0)})${buy ? ". " + esc(buy) : ""}.</div>`;
 }
@@ -8039,7 +8039,7 @@ function pointList(city, listKey) { return (city && city.starts && city.starts[l
 function lodgingFor(d, city) {
   const k = cityKeyFor(d) || keyOf(d.destination);
   const L = trip.lodging[k] || { idx: 0 };
-  const real = v => v !== null && v !== "" && isFinite(+v) && +v !== 0;
+  const real = v => v !== null && v !== "" && KEngine.fin(v) && +v !== 0;
   if (L.idx === "custom" && L.ll && real(L.ll.lat) && real(L.ll.lng)) return { name: String(L.name || "").trim() || "Your hotel", lat: +L.ll.lat, lng: +L.ll.lng };
   const list = pointList(city, "hotel");
   // A hotel typed in (or brought in with a trip) that the map hasn't placed yet never blanks the day (Richard's
@@ -8062,7 +8062,7 @@ function dayPoint(d, city) {
   // a real place they confirmed, never a guess (Nov 21 outside check: Dubrovnik and Reykjavik port days stayed blank).
   // An air, cargo or container terminal is no pier, even one saved before the app knew it (E58): the day asks again.
   const shipOk = p => typeof KEngine === "undefined" || !KEngine.notShipPlace || !KEngine.notShipPlace(p);
-  if (listKey === "cruise" && d.pier && isFinite(+d.pier.lat) && isFinite(+d.pier.lng) && shipOk(d.pier)) return { name: d.pier.name, lat: +d.pier.lat, lng: +d.pier.lng, note: "The pier you named, found on the map.", own: true };
+  if (listKey === "cruise" && d.pier && KEngine.fin(d.pier.lat) && KEngine.fin(d.pier.lng) && shipOk(d.pier)) return { name: d.pier.name, lat: +d.pier.lat, lng: +d.pier.lng, note: "The pier you named, found on the map.", own: true };
   // The same for an airport or station the guide doesn't list (first-time traveler walk, Nov 22: Rome's arrival and
   // leaving days said "Choose your arrival airport" with no airport to choose, and stopped there).
   // An airport that is no airport a traveler flies to (a terminal, a heliport, one closed or not built yet: round 6a
@@ -8070,7 +8070,7 @@ function dayPoint(d, city) {
   const notAir = p => listKey === "airport" && p && !p.unknown && typeof KEngine !== "undefined" && KEngine.gateOk && !KEngine.gateOk("airport", p === dayGate ? Object.assign({}, p, { kind: d.gate.mapKind || "" }) : p);
   const flag = p => notAir(p) ? Object.assign({}, p, { unknown: true, notGate: true }) : p;
   let dayGate = null;
-  if ((listKey === "airport" || listKey === "station") && d.gate && d.gate.kind === listKey && isFinite(+d.gate.lat) && isFinite(+d.gate.lng)) return flag(dayGate = { name: d.gate.name, lat: +d.gate.lat, lng: +d.gate.lng, note: "The " + listKey + " you named, found on the map.", own: true });
+  if ((listKey === "airport" || listKey === "station") && d.gate && d.gate.kind === listKey && KEngine.fin(d.gate.lat) && KEngine.fin(d.gate.lng)) return flag(dayGate = { name: d.gate.name, lat: +d.gate.lat, lng: +d.gate.lng, note: "The " + listKey + " you named, found on the map.", own: true });
   const list = pointList(city, listKey); let p = list[d.pointIdx] || list[0] || null;
   // Nothing picked yet: the first listed airport that is a real one, never a terminal or a closed field listed before it.
   if (notAir(p) && !d.pointPicked && !(d.pointIdx > 0)) p = list.find(x => !x.unknown && !notAir(x)) || p;
@@ -8119,7 +8119,7 @@ const lunchIn = (from, hours) => { const end = from + hours * 60, L = MEALS[0]; 
 // found by the lookup and the day stayed empty although the app knows exactly where that terminal is.
 let gateList = null; if (typeof window !== "undefined") window.__kairouteKnownGate = (k, name, mid) => [knownGate(k, { name }, mid, 150), (gateList || []).length];
 function knownGate(k, p, mid, lim) {
-  if (!gateList) { gateList = []; try { for (const [c] of (typeof BUILTIN_CITIES === "undefined" ? [] : BUILTIN_CITIES)) for (const kk of ["cruise", "airport"]) ((c.starts || {})[kk] || []).forEach(g => { if (isFinite(+g.lat) && isFinite(+g.lng)) gateList.push({ k: kk, name: g.name, lat: +g.lat, lng: +g.lng }); }); } catch (e) {} }
+  if (!gateList) { gateList = []; try { for (const [c] of (typeof BUILTIN_CITIES === "undefined" ? [] : BUILTIN_CITIES)) for (const kk of ["cruise", "airport"]) ((c.starts || {})[kk] || []).forEach(g => { if (KEngine.fin(g.lat) && KEngine.fin(g.lng)) gateList.push({ k: kk, name: g.name, lat: +g.lat, lng: +g.lng }); }); } catch (e) {} }
   const GENERIC = /^(port|porto|cruise|terminal|terminals|ship|ships|harbou?r|pier|the|of|de|di|del|international|airport|aeroporto|aeropuerto|station)$/;
   const words = n => keyOf(n || "").split(/[^a-z0-9]+/).filter(w => w.length > 3 && !GENERIC.test(w));
   const mine = words(p.name); if (!mine.length) return null;
@@ -8132,7 +8132,7 @@ function placeStart(k, p, site, r, mid) {
   if (site && !gate) { p.lat = numV(site.lat); p.lng = numV(site.lng); }
   else if (r && r.real && r.lat != null && hav(r, mid) <= lim) { p.lat = r.lat; p.lng = r.lng; delete p.unknown; }
   else if (gate && knownGate(k, p, mid, lim)) { const g = knownGate(k, p, mid, lim); p.lat = g.lat; p.lng = g.lng; delete p.unknown; }
-  else if (gate) { if (moved || !isFinite(at.lat) || hav(at, mid) > lim) p.unknown = true; }
+  else if (gate) { if (moved || !KEngine.fin(at.lat) || hav(at, mid) > lim) p.unknown = true; }
   else if (site) { p.lat = numV(site.lat); p.lng = numV(site.lng); }
   else if (hav(at, mid) > lim) { p.lat = mid.lat; p.lng = mid.lng; p.note = ((p.note || "") + " Location approximate: city centre.").trim(); }
   return p;
@@ -8152,7 +8152,7 @@ function dayWindow(d, city) {
   const w = { head: [], tail: [], start: 0, endBy: 0, notes: [], notesEnd: [], buffer: 0 };
   if (approxStayNote(L) && !throughFrom(d)) w.notes.push(approxStayNote(L));
   if (unsurePoint(P) && P.unknown && !P.notGate) { // a port already marked unknown in a saved guide: the app's own known terminals first
-    const k = d.type === "port" || d.mode === "ship" ? "cruise" : /airport/i.test(P.name || "") || d.mode === "flight" ? "airport" : "cruise", ss = (city.sites || []).filter(x => isFinite(+x.lat)), mid = ss.length ? { lat: ss.map(x => +x.lat).sort((a, b) => a - b)[ss.length >> 1], lng: ss.map(x => +x.lng).sort((a, b) => a - b)[ss.length >> 1] } : null, g = knownGate(k, P, mid, 150);
+    const k = d.type === "port" || d.mode === "ship" ? "cruise" : /airport/i.test(P.name || "") || d.mode === "flight" ? "airport" : "cruise", ss = (city.sites || []).filter(x => KEngine.fin(x.lat)), mid = ss.length ? { lat: ss.map(x => +x.lat).sort((a, b) => a - b)[ss.length >> 1], lng: ss.map(x => +x.lng).sort((a, b) => a - b)[ss.length >> 1] } : null, g = knownGate(k, P, mid, 150);
     if (g) { P.lat = g.lat; P.lng = g.lng; delete P.unknown; } }
   if (P && P.notGate && !throughTo(d) && d.type !== "land") return { error: notGateMsg(P), unsure: true };
   if (unsurePoint(P) && !throughTo(d) && d.type !== "land") return { error: `We couldn't find exactly where ${P.name} is, so this day isn't planned on a guess (every ride time and the time to head back depend on it). It's being looked up again; you can also pick another ${d.type === "port" || d.type === "embark" || d.mode === "ship" ? "cruise terminal" : "arrival point"} in the day's settings.`, unsure: true };
@@ -8239,7 +8239,7 @@ function dayWindow(d, city) {
     if (d.tender) w.notesEnd.push(`This is a tender port: the boats back to the ship stop before all aboard and can have a long queue, so the plan has you at the tender pier ${(typeof KEngine !== "undefined" && KEngine.TENDER_BACK) || 30} min earlier than it would at a dock. The ship's daily program gives the last tender: if it is earlier than the time shown, leave earlier.`);
     w.notes.push(`Ship docks ${d.portArrive}${d.tender ? " (tender port, so we allow an hour to get ashore)" : ""}.`);
   }
-  if (!isFinite(w.start) || !isFinite(w.endBy)) return { error: "Add the times for this day." };
+  if (!KEngine.fin(w.start) || !KEngine.fin(w.endBy)) return { error: "Add the times for this day." };
   return w;
 }
 
@@ -8337,7 +8337,7 @@ let planDate = null;
 const EXPOSED = /archaeolog|ancient|ruin|acropolis|forum|agora|pompeii|herculaneum|ostia|delphi|olympia|ephesus|amphithea|colosseum|sanctuary|temple of|excavat|necropolis|citadel|castle walls|beach|hike|trail/i;
 function climateHeat(p, t, len) {
   if (planWx || !planDate || p.indoor || p.mealOf || !EXPOSED.test((p.category || "") + " " + p.name)) return 0;
-  const mo = +planDate.slice(5, 7), lat = +p.lat; if (!(isFinite(lat) && lat > 20 && lat < 46 && mo >= 6 && mo <= 9)) return 0;
+  const mo = +planDate.slice(5, 7), lat = +p.lat; if (!(KEngine.fin(lat) && lat > 20 && lat < 46 && mo >= 6 && mo <= 9)) return 0;
   return overlap(t, t + len, 12 * 60, 16 * 60) * 0.5;
 }
 const MEAL_CHECK = { Lunch: [750, 810], Dinner: [1170, 1230] }; // 12:30 and 13:30; 19:30 and 20:30
@@ -8353,7 +8353,7 @@ const CROSS_COST = 60; let crossOn = false; // on only for the last pass over a 
 // place's flat map position, and skips pairs of legs whose boxes don't overlap before doing any cross products.
 const crossXY = new WeakMap(), CXB = new Float64Array(128);
 function crossCount(O, seq, Z) {
-  let m = 0; const add = p => { if (!p || m >= 126) return; let q = crossXY.get(p); if (!q) { if (!isFinite(p.lat) || !isFinite(p.lng)) return; q = [p.lng * Math.cos(p.lat * Math.PI / 180), +p.lat]; crossXY.set(p, q); }
+  let m = 0; const add = p => { if (!p || m >= 126) return; let q = crossXY.get(p); if (!q) { if (!KEngine.fin(p.lat) || !KEngine.fin(p.lng)) return; q = [p.lng * Math.cos(p.lat * Math.PI / 180), +p.lat]; crossXY.set(p, q); }
     if (m && Math.abs(CXB[m - 2] - q[0]) + Math.abs(CXB[m - 1] - q[1]) <= 2e-4) return; CXB[m++] = q[0]; CXB[m++] = q[1]; };
   add(O); for (let i = 0; i < seq.length; i++) add(seq[i]); add(Z);
   const k = m / 2; if (k < 4) return 0;
@@ -8377,7 +8377,7 @@ function crossCount(O, seq, Z) {
 // direction (a sweep gives a loop with no crossings by construction; the polish then fixes hours and meals). Live
 // Jul 1 Athens, Nov 16: from the found order alone the polish stayed stuck in a tangled route.
 function loopSeeds(seq, O, Z) {
-  const out = [seq, seq.slice().reverse()], pts = seq.filter(p => isFinite(p.lat) && isFinite(p.lng)); if (!O || pts.length < 3 || pts.length !== seq.length) return out;
+  const out = [seq, seq.slice().reverse()], pts = seq.filter(p => KEngine.fin(p.lat) && KEngine.fin(p.lng)); if (!O || pts.length < 3 || pts.length !== seq.length) return out;
   const all = [O, Z, ...pts].filter(Boolean), cy = all.reduce((a, p) => a + +p.lat, 0) / all.length, cx = all.reduce((a, p) => a + +p.lng, 0) / all.length, k = Math.cos(cy * Math.PI / 180);
   const ang = p => Math.atan2(+p.lat - cy, (+p.lng - cx) * k), a0 = ang(O), rel = p => { let a = ang(p) - a0; while (a < 0) a += 2 * Math.PI; return a; };
   const ccw = seq.slice().sort((a, b) => rel(a) - rel(b)); out.push(ccw, ccw.slice().reverse()); return out;
@@ -8498,7 +8498,7 @@ function mealPick(seq, O, Z, city, m, style) {
 }
 function mealPickRaw(seq, O, Z, city, m, style) {
   const all = mealSpots(seq, O, Z, city); if (all.length <= MEAL_TRY) return all;
-  const pts = [O].concat(seq.filter(x => !x.mealOf), [Z]).filter(x => x && isFinite(numV(x.lat)));
+  const pts = [O].concat(seq.filter(x => !x.mealOf), [Z]).filter(x => x && KEngine.fin(numV(x.lat)));
   // The detour, whatever order the stops end up in: twice the walk from the nearest stop.
   const det = r => { let b = Infinity; for (const p of pts) b = Math.min(b, hav(p, r)); return pts.length ? 2 * b : 0; };
   const score = r => det(r) * 15 + (!r.generic && mealShut(r, m.label) ? 400 : 0) + (style !== "mix" && r.kind && r.kind !== style ? 8 : 0) - (r.recommended ? 6 : 0) - (r.bothGuides ? 4 : 0) - (r.top ? 8 : 0) - (r.crowdTop ? 10 : 0) - (gGood(r.g) ? 6 : 0);
@@ -8634,7 +8634,7 @@ function crowdMark(city) {
 const G_KEY = "kairoute.grat", G_MIN = 4.0, G_FLOOR = 3.6;
 let gStore = {}; try { gStore = JSON.parse(localStorage.getItem(G_KEY) || "{}") || {}; } catch (e) {}
 const gKey = r => keyOf(r.name) + "|" + (+r.lat).toFixed(3) + "|" + (+r.lng).toFixed(3);
-function gOf(r) { const x = r && isFinite(r.lat) ? gStore[gKey(r)] : null; return x && (Date.now() - (x.at || 0) < 30 * 86400000 || (typeof navigator !== "undefined" && navigator.onLine === false)) ? x : null; } // with no internet a saved rating is kept, however old
+function gOf(r) { const x = r && KEngine.fin(r.lat) ? gStore[gKey(r)] : null; return x && (Date.now() - (x.at || 0) < 30 * 86400000 || (typeof navigator !== "undefined" && navigator.onLine === false)) ? x : null; } // with no internet a saved rating is kept, however old
 const gBad = g => !!g && g.state === "ok" && (g.closed || (g.rating != null && ((g.rating < G_MIN && g.count >= 20) || (g.rating < G_FLOOR && g.count >= 5))));
 const gGood = g => !!g && g.state === "ok" && g.rating >= 4.5 && g.count >= 100;
 let gAsking = new Set(), gNoKey = false, gInFlight = 0;
@@ -8642,7 +8642,7 @@ function gCheck(plan, city) {
   if (!freeAI || !plan || !plan.items || gNoKey) return;
   const places = [];
   plan.items.forEach(it => { if ((it.type === "meal" || it.type === "evening") && !it.place.generic && !it.place.booked) [it.place].concat(it.place.alts || []).forEach(p => places.push(p)); });
-  const todo = places.filter(p => isFinite(p.lat) && !gOf(p) && !gAsking.has(gKey(p))); if (!todo.length) return;
+  const todo = places.filter(p => KEngine.fin(p.lat) && !gOf(p) && !gAsking.has(gKey(p))); if (!todo.length) return;
   todo.forEach(p => gAsking.add(gKey(p))); gInFlight++;
   fetch(freeAI.url + "/grating", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ places: todo.map(p => ({ name: p.name, lat: p.lat, lng: p.lng })) }) })
     .then(r => r.ok ? r.json() : null).then(j => {
@@ -8695,7 +8695,7 @@ const crowdBadge = r => r.crowdTop ? `<i class="badge kpick">★ Kairoute Top Pi
 const crowdLine = r => r.crowd ? `★ ${r.crowd.avg.toFixed(1)} from ${r.crowd.n} Kairoute travelers` : "";
 // Tables the traveler already booked (Day plan > "I already have a place"), checked as real on the map.
 function bookedMeals(d, city) {
-  return MEALS.map(m => { const b = (d.booked || {})[m.label]; if (!b || !isFinite(b.lat) || !isFinite(b.lng) || !/^\d\d:\d\d$/.test(b.time || "")) return null;
+  return MEALS.map(m => { const b = (d.booked || {})[m.label]; if (!b || !KEngine.fin(b.lat) || !KEngine.fin(b.lng) || !/^\d\d:\d\d$/.test(b.time || "")) return null;
     const t = toMin(b.time);
     return { label: m.label, from: t, to: t + 10, len: m.len, booked: true,
       node: { id: "booked-" + keyOf(m.label), name: b.name, lat: b.lat, lng: b.lng, booked: true, kind: "local", cuisine: b.kind || "", price: "", why: "Your reservation at " + fmt(t) + (b.addr ? ". " + b.addr : "") + ".", onMap: true } };
@@ -8708,8 +8708,8 @@ async function bookSearch() {
   const d = day(), city = cityFor(d), f = bookForm; if (!f || !city) return;
   f.q = ((document.getElementById("bk-name") || {}).value || "").trim(); f.time = ((document.getElementById("bk-time") || {}).value || f.time);
   if (f.q.length < 2) { f.msg = "Type the name of the restaurant."; render(); return; }
-  const L = lodgingFor(d, city), from = L && isFinite(L.lat) ? L : (city.sites || [])[0];
-  const found = (city.restaurants || []).filter(r => !r.generic && isFinite(r.lat) && (nameMatch(f.q, r.name) || nameMatch(r.name, f.q))).map(r => ({ name: r.name, lat: r.lat, lng: r.lng, kind: r.cuisine || "" }));
+  const L = lodgingFor(d, city), from = L && KEngine.fin(L.lat) ? L : (city.sites || [])[0];
+  const found = (city.restaurants || []).filter(r => !r.generic && KEngine.fin(r.lat) && (nameMatch(f.q, r.name) || nameMatch(r.name, f.q))).map(r => ({ name: r.name, lat: r.lat, lng: r.lng, kind: r.cuisine || "" }));
   f.busy = true; f.msg = ""; f.results = found.slice(0, 4); render();
   if (typeof navigator !== "undefined" && navigator.onLine === false) { f.busy = false; if (!found.length) f.msg = "There's no internet right now, and I need it to find the place on the map. Try again when you're online."; render(); return; }
   try {
@@ -8718,7 +8718,7 @@ async function bookSearch() {
     const j = r && r.ok ? await r.json() : null;
     const core = f.q.replace(/\b(taverna|tavern|restaurant|ristorante|trattoria|osteria|cafe|café|bistro|bar|the|mezedopolio|ouzeri|estiatorio)\b/gi, " ").replace(/\s+/g, " ").trim() || f.q;
     const eats = /restaurant|cafe|pub|bar|fast_food|food_court|biergarten|ice_cream/;
-    ((j && j.places) || []).filter(m => isFinite(m.lat) && (m.names || [m.name]).some(n => nameMatch(f.q, n) || nameMatch(core, n) || nameMatch(n, core)))
+    ((j && j.places) || []).filter(m => KEngine.fin(m.lat) && (m.names || [m.name]).some(n => nameMatch(f.q, n) || nameMatch(core, n) || nameMatch(n, core)))
       .sort((a, b) => (eats.test(b.kind) ? 1 : 0) - (eats.test(a.kind) ? 1 : 0))
       .forEach(m => { if (!f.results.some(y => hav(y, m) < 0.05)) f.results.push({ name: m.name, lat: +(+m.lat).toFixed(5), lng: +(+m.lng).toFixed(5), kind: String(m.kind || "").replace(/_/g, " "), addr: m.addr || "" }); });
   } catch (e) {}
@@ -8758,7 +8758,7 @@ function pierQuery(pts) {
 }
 function piersFrom(d, pts) {
   const out = [];
-  for (const e of (d && d.elements) || []) { const t = e.tags || {}, lat = e.lat != null ? e.lat : e.center && e.center.lat, lng = e.lon != null ? e.lon : e.center && e.center.lon; if (!isFinite(lat) || !isFinite(lng)) continue;
+  for (const e of (d && d.elements) || []) { const t = e.tags || {}, lat = e.lat != null ? e.lat : e.center && e.center.lat, lng = e.lon != null ? e.lon : e.center && e.center.lon; if (!KEngine.fin(lat) || !KEngine.fin(lng)) continue;
     const kind = /cruise/i.test(t.name || "") ? "cruise" : t.amenity === "ferry_terminal" ? "ferry_terminal" : t.man_made === "quay" ? "quay" : t.man_made === "pier" ? "pier" : t.landuse === "port" ? "port" : t.harbour ? "harbour" : "";
     if (!kind) continue; const name = t["name:en"] || t.name || "";
     out.push({ name: name || PIER_KINDS[kind] + ", no name on the map", lat, lng, kind: PIER_KINDS[kind].toLowerCase(), named: !!name, km: Math.min(...pts.map(p => hav(p, { lat, lng }))) }); }
@@ -8779,9 +8779,9 @@ async function pierSearch() {
   if (f.q.length < 2) { f.msg = W.short; render(); return; }
   if (typeof navigator !== "undefined" && navigator.onLine === false) { f.msg = `There's no internet right now, and I need it to find the ${W.what} on the map. Try again when you're online.`; render(); return; }
   f.busy = true; f.msg = ""; f.results = []; f.area = ""; render();
-  const ss = allSites(city).filter(x => isFinite(+x.lat)), mid = ss.length ? { lat: ss.map(x => +x.lat).sort((a, b) => a - b)[ss.length >> 1], lng: ss.map(x => +x.lng).sort((a, b) => a - b)[ss.length >> 1] } : null;
+  const ss = allSites(city).filter(x => KEngine.fin(x.lat)), mid = ss.length ? { lat: ss.map(x => +x.lat).sort((a, b) => a - b)[ss.length >> 1], lng: ss.map(x => +x.lng).sort((a, b) => a - b)[ss.length >> 1] } : null;
   const ask = async q => { try { const r = freeAI ? await fetch(freeAI.url + "/findplace?city=" + encodeURIComponent(bareName(d.destination)) + "&q=" + encodeURIComponent(q)) : null, j = r && r.ok ? await r.json() : null;
-    return ((j && j.places) || []).filter(m => isFinite(+m.lat) && isFinite(+m.lng) && (!mid || hav(mid, m) <= 60)); } catch (e) { return []; } };
+    return ((j && j.places) || []).filter(m => KEngine.fin(m.lat) && KEngine.fin(m.lng) && (!mid || hav(mid, m) <= 60)); } catch (e) { return []; } };
   const add = (list, near) => list.filter(m => !PIER_NOT.test(String(m.kind || "")) && !(typeof KEngine !== "undefined" && KEngine.notShipPlace && KEngine.notShipPlace(m)) && (!near || near.some(a => hav(a, m) <= 3))).forEach(m => { if (!f.results.some(y => hav(y, m) < 0.05)) f.results.push({ name: m.name, lat: +(+m.lat).toFixed(5), lng: +(+m.lng).toFixed(5), kind: String(m.kind || "").replace(/_/g, " "), addr: m.addr || "", km: mid ? hav(mid, m) : null }); });
   const got = await ask(f.q);
   // An airport or station: only places the map calls one (or named as one), within reach of the city.
@@ -8889,7 +8889,7 @@ const planStat = { hit: 0, kept: 0, stale: 0, built: 0, changed: 0 }; // how pla
 const planOk = (e, d) => e.dg === dataGen || (e.fp === dayFp(d, e.rides) ? ((e.dg = dataGen), planStat.kept++, true) : (planStat.changed++, false));
 // Test hook (safety net): each city day planned afresh, with the riding its order takes, the riding of the best order by
 // route alone, and what crowds, heat or the forecast were allowed to add (was: the preferred order before the cap).
-if (typeof window !== "undefined") window.__kairouteRouteX = () => { try { window.__kairouteSeen.clear(); } catch (e) {} return trip.days.map((d, i) => { if (noShore(d) || !cityFor(d)) return null; bonusMemo = new Map(); mealMemo = new Map(); keptMemo = new Map(); eveMemo = new Map(); avoidMeals = new Set(); let p = null; try { p = buildPlan(d); } catch (e) {} const st = (p && !p.error ? p.stops || [] : []).filter(x => x.place && !x.place.mealOf && isFinite(x.place.lat)).map(x => x.place), O = p && p.w ? p.w.head[p.w.head.length - 1] : null, Z = p && p.w ? p.w.tail[0] || null : null, rideOf = q => { let c = 0, pv = O; for (const x of q) { c += tmin(pv, x); pv = x; } return Math.round(c + (Z ? tmin(pv, Z) : 0)); };
+if (typeof window !== "undefined") window.__kairouteRouteX = () => { try { window.__kairouteSeen.clear(); } catch (e) {} return trip.days.map((d, i) => { if (noShore(d) || !cityFor(d)) return null; bonusMemo = new Map(); mealMemo = new Map(); keptMemo = new Map(); eveMemo = new Map(); avoidMeals = new Set(); let p = null; try { p = buildPlan(d); } catch (e) {} const st = (p && !p.error ? p.stops || [] : []).filter(x => x.place && !x.place.mealOf && KEngine.fin(x.place.lat)).map(x => x.place), O = p && p.w ? p.w.head[p.w.head.length - 1] : null, Z = p && p.w ? p.w.tail[0] || null : null, rideOf = q => { let c = 0, pv = O; for (const x of q) { c += tmin(pv, x); pv = x; } return Math.round(c + (Z ? tmin(pv, Z) : 0)); };
     const pure = O && st.length > 1 ? { stopsRide: rideOf(st), pureBest: rideOf(optimizeFree(st, O, Z)) } : {};
     return p && !p.error ? Object.assign(pure, { i, date: d.date, city: d.destination, stops: (p.stops || []).filter(x => x.place && !x.place.mealOf).map(x => x.place.name) }, p.routeX || {}) : null; }).filter(Boolean); };
 if (typeof window !== "undefined") window.__kairoutePlanStat = () => Object.assign({ renders: renderNo, dataGen }, planStat);
@@ -9503,7 +9503,7 @@ function salvageJSON(t) {
   if (lastOk < 0) return null;
   try { return JSON.parse(t.slice(0, lastOk + 1) + lastStack.reverse().join("")); } catch (e) { return null; }
 }
-const numV = v => (typeof v === "number" && isFinite(v) ? v : parseFloat(v));
+const numV = v => (typeof v === "number" && KEngine.fin(v) ? v : parseFloat(v));
 // A writer sometimes gives a name as an object ({"name": ...}, {"en": ...}); a name that can't be read means no sight.
 function siteName(n) { if (n && typeof n === "object") n = n.name || n.en || n.n || n.local || ""; n = typeof n === "string" || typeof n === "number" ? String(n).trim() : ""; return /^\[object|^(undefined|null|site)$/i.test(n) ? "" : n; }
 function normSite(s, i, extra) {
@@ -9523,7 +9523,7 @@ function normSite(s, i, extra) {
 }
 function cleanCity(c, dest) {
   const num = numV;
-  const okLL = p => p && isFinite(num(p.lat)) && isFinite(num(p.lng)) && !!siteName(p.name);
+  const okLL = p => p && KEngine.fin(num(p.lat)) && KEngine.fin(num(p.lng)) && !!siteName(p.name);
   const site = normSite;
   const starts = {};
   for (const k of ["cruise", "airport", "station", "hotel", "point"]) starts[k] = ((c.starts && c.starts[k]) || []).filter(okLL).map(p => ({ name: (k !== "hotel" && enNameOf(String(p.name))) || String(p.name), lat: num(p.lat), lng: num(p.lng), note: p.note ? String(p.note) : "" }));
@@ -9596,8 +9596,8 @@ async function addPlaces(d, ask) {
   // 1. The real place first, from the map and the encyclopedia (Richard, Nov 14: typing a real place found nothing
   // while the AI allowance was used up). This needs no AI, and the place's position comes from the map, never the AI.
   let real = null;
-  if (ask && freeAI) { try { const g = await groundNames([ask], d.destination || city.city, new Set([ask])); const r = g && g.get(ask); if (r && r.real && isFinite(r.lat) && isFinite(r.lng)) real = r; } catch (e) {} }
-  if (real) { const k = allSites(city).find(x => samePlace(x, { name: real.title || ask }) || (isFinite(x.lat) && hav(x, real) < 0.15 && (nameMatch(ask, x.name) || nameMatch(x.name, ask)))); if (k) { addBusy = null; useKnown(d, k); return; } }
+  if (ask && freeAI) { try { const g = await groundNames([ask], d.destination || city.city, new Set([ask])); const r = g && g.get(ask); if (r && r.real && KEngine.fin(r.lat) && KEngine.fin(r.lng)) real = r; } catch (e) {} }
+  if (real) { const k = allSites(city).find(x => samePlace(x, { name: real.title || ask }) || (KEngine.fin(x.lat) && hav(x, real) < 0.15 && (nameMatch(ask, x.name) || nameMatch(x.name, ask)))); if (k) { addBusy = null; useKnown(d, k); return; } }
   const have = allSites(city).map(x => x.name).join(", ");
   const base = cityKeyFor(d) === "barcelona" ? "Barcelona" : city.city;
   const prompt = `You are an expert tour guide writing data for a self-guided tour app. The traveler is based in ${base}${city.country ? ", " + city.country : ""} for the day${d.type === "port" ? " on a cruise port stop and must be back aboard the same day" : ""}.
@@ -9613,7 +9613,7 @@ Return ONLY JSON: {"places":[{"id","name","lat","lng","minutes","kind":"touristy
     try {
       const r = await sample(prompt + (real ? `\n- "${ask}" is ${real.title ? `"${real.title}" ` : ""}at ${real.lat.toFixed(5)}, ${real.lng.toFixed(5)} (from the map): use that position.` : ""), { modelTier: "default" });
       const j = parseJSON(r.text || "");
-      const okLL = p => p && isFinite(numV(p.lat)) && isFinite(numV(p.lng));
+      const okLL = p => p && KEngine.fin(numV(p.lat)) && KEngine.fin(numV(p.lng));
       found = (j.places || []).filter(okLL).map((x, i) => { const st = normSite(x, i, "-add" + Date.now().toString(36) + i); st.added = true; return st; });
     } catch (e) { aiErr = (e && e.message) || ""; }
   }
@@ -9802,7 +9802,7 @@ function nameMatch(want, got) {
 }
 async function groundNames(names, label, farSet) {
   if (!freeAI || !names.length) return null;
-  const lookOne = async list => { try { const r = await fetch(freeAI.url + "/ground", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ city: label, names: list, far: list.filter(n => farSet && farSet.has(n)) }) }); if (r.ok) { const j = await r.json(); if (Array.isArray(j.results)) { if (j.center && isFinite(j.center.lat) && isFinite(j.center.lng)) cityMid = j.center; return j.results; } } } catch (e) {} return null; };
+  const lookOne = async list => { try { const r = await fetch(freeAI.url + "/ground", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ city: label, names: list, far: list.filter(n => farSet && farSet.has(n)) }) }); if (r.ok) { const j = await r.json(); if (Array.isArray(j.results)) { if (j.center && KEngine.fin(j.center.lat) && KEngine.fin(j.center.lng)) cityMid = j.center; return j.results; } } } catch (e) {} return null; };
   // In batches of 8 names: one long request can pass the 100-second limit of the network in front of the helper
   // (it then answers 502 and the whole check fails). A batch that fails is tried once more; names still
   // unanswered count as unanswered rather than failing the whole check.
@@ -9837,7 +9837,7 @@ async function groundNames(names, label, farSet) {
   const center = cityMid || median;
   const out = new Map();
   names.forEach((n, i) => {
-    const x = res[i] || {}, lim = farSet && farSet.has(n) ? 250 : 40, inArea = p => p && isFinite(p.lat) && (!center || hav(p, center) <= lim);
+    const x = res[i] || {}, lim = farSet && farSet.has(n) ? 250 : 40, inArea = p => p && KEngine.fin(p.lat) && (!center || hav(p, center) <= lim);
     const wiki = (x.wiki || []).find(w => nameMatch(n, w.title) && (w.lat == null || inArea(w)));
     const map = (x.map || []).find(m => nameMatch(n, m.name) && inArea(m));
     let pos = map || (wiki && wiki.lat != null ? wiki : null);
@@ -9941,7 +9941,7 @@ async function sourcesFor(label) {
   return kept ? (sourcesCache[label] = kept) : null;
 }
 const srcStop = (src, name, ll) => src && (src.stops || []).find(x => nameMatch(name, x.name) || nameMatch(x.name, name) || (x.local && (nameMatch(name, x.local) || nameMatch(x.local, name))) ||
-  (ll && x.lat != null && isFinite(numV(ll.lat)) && Math.abs(x.lat - numV(ll.lat)) < 0.0015 && Math.abs(x.lng - numV(ll.lng)) < 0.002 && nameMatch(x.name.split(" ").slice(0, 2).join(" "), name)));
+  (ll && x.lat != null && KEngine.fin(numV(ll.lat)) && Math.abs(x.lat - numV(ll.lat)) < 0.0015 && Math.abs(x.lng - numV(ll.lng)) < 0.002 && nameMatch(x.name.split(" ").slice(0, 2).join(" "), name)));
 const fameAsked = {};
 function fameMark(city, src) {
   // Fills first, then the sources' sights: the same order online and offline, so the list comes out the same.
@@ -9986,7 +9986,7 @@ function fameMark(city, src) {
 // the sources, never the AI).
 function famousTop(city, src) {
   const vis = x => x.lat != null && ((x.src || []).some(t => /Wikivoyage|heritage|UNESCO/.test(t)) || srcFamed(x)) && !srcNotSpot(x);
-  const pts = (city.sites || []).filter(x => isFinite(x.lat)), la = pts.map(x => x.lat).sort((a, b) => a - b), ln = pts.map(x => x.lng).sort((a, b) => a - b);
+  const pts = (city.sites || []).filter(x => KEngine.fin(x.lat)), la = pts.map(x => x.lat).sort((a, b) => a - b), ln = pts.map(x => x.lng).sort((a, b) => a - b);
   const mid = pts.length ? { lat: la[pts.length >> 1], lng: ln[pts.length >> 1] } : null;
   return (src.stops || []).filter(x => vis(x) && (!mid || hav(x, mid) <= 8)).sort((a, b) => (b.sl || 0) - (a.sl || 0)).slice(0, 12);
 }
@@ -10037,7 +10037,7 @@ function tickOnOneDay(city, s) {
   const days = trip.days.filter(d => cityFor(d) === city);
   if (!days.length || days.some(d => (d.selected || []).includes(s.id))) return;
   const live = days.filter(d => Array.isArray(d.selected) && d.selected.length); if (!live.length) return;
-  const near = d => { const ps = d.selected.map(id => allSites(city).find(x => x.id === id)).filter(x => x && isFinite(x.lat)); return ps.length ? Math.min(...ps.map(x => hav(x, s))) : 99; };
+  const near = d => { const ps = d.selected.map(id => allSites(city).find(x => x.id === id)).filter(x => x && KEngine.fin(x.lat)); return ps.length ? Math.min(...ps.map(x => hav(x, s))) : 99; };
   for (const d of live.sort((a, b) => near(a) - near(b))) if (addPick(d, s.id, false)) return; // only where it fits
 }
 // Famous places written in are kept on the device for every city, built-in ones included (a built-in guide isn't
@@ -10083,7 +10083,7 @@ const FARFILL_V = 2, farFilling = {};
 function farUntimed(s) { return !!(s && s.far && s.famousFix && !(typeof s.travel === "string" && s.travel.trim())); }
 function farGaps(city, src) {
   const all = allSites(city), inGuide = y => all.some(s => sameSight(y, s) || (s.merged || []).some(m => sameSight(y, m)) || (s.lookFor || []).some(n => typeof n === "string" && nameMatch(n, y.name) && nameMatch(y.name, n)));
-  return (src.far || []).filter(y => y && y.name && isFinite(y.lat) && y.km >= 8 && y.km <= 100 && (y.sl || 0) >= 25 && !farNotPlace(y) && !inGuide(y)).sort((a, b) => (b.sl || 0) - (a.sl || 0)).slice(0, 10);
+  return (src.far || []).filter(y => y && y.name && KEngine.fin(y.lat) && y.km >= 8 && y.km <= 100 && (y.sl || 0) >= 25 && !farNotPlace(y) && !inGuide(y)).sort((a, b) => (b.sl || 0) - (a.sl || 0)).slice(0, 10);
 }
 async function fillFarther(city, src) {
   const k = keyOf(city.city); if (farFilling[k] || city.farFillV === FARFILL_V) return;
@@ -10141,7 +10141,7 @@ Return ONLY JSON: {"places":[{"n":number,"minutes","category","summary","guide",
 const AREA_CAT = /square|plaza|piazza|platz|old town|historic|quarter|district|complex|castle|palace|citadel|fortress|kremlin|acropolis|archaeolog|ancient|forum|monaster|abbey|park|garden|campus|cemetery|harbou?r|waterfront|village|island|hill/i;
 function partCands(s, city) {
   const src = fameAsked[keyOf(city.city)];
-  if (!src || src === true || !isFinite(s.lat) || s.far || s.quick) return [];
+  if (!src || src === true || !KEngine.fin(s.lat) || s.far || s.quick) return [];
   // How far its parts can be: a castle, palace, ancient site or park covers ground; a square or old street less.
   const t = s.category + " " + s.name, r = /castle|palace|citadel|fortress|kremlin|acropolis|archaeolog|ancient|forum|monaster|abbey|park|garden|campus|cemetery|island|hill|complex/i.test(t) ? 0.45 : /square|plaza|piazza|platz|market/i.test(t) ? 0.2 : /old town|historic|quarter|district|village/i.test(t) ? 0.35 : AREA_CAT.test(t) ? 0.2 : 0.12;
   const mains = (city.sites || []).filter(x => !x.quick && x !== s), self = x => sameSight(x, s);
@@ -10151,12 +10151,12 @@ function partCands(s, city) {
     if (out.some(o => sameSight(x, o))) continue;
     out.push({ name: x.name, local: x.local, wd: x.wd, lat: x.lat, lng: x.lng, sl: x.sl || 0, m: Math.round(hav(x, s) * 1000) });
   }
-  for (const q of (city.sites || []).filter(x => x.quick && isFinite(x.lat) && hav(x, s) <= r)) if (!out.some(o => sameSight(o, q))) out.push({ name: q.name, lat: q.lat, lng: q.lng, sl: q.fame || 0, m: Math.round(hav(q, s) * 1000), quickId: q.id });
+  for (const q of (city.sites || []).filter(x => x.quick && KEngine.fin(x.lat) && hav(x, s) <= r)) if (!out.some(o => sameSight(o, q))) out.push({ name: q.name, lat: q.lat, lng: q.lng, sl: q.fame || 0, m: Math.round(hav(q, s) * 1000), quickId: q.id });
   return out.sort((a, b) => b.sl - a.sl).slice(0, 10);
 }
 // A point nearer another stop of the guide than this one belongs to that stop's walk (the Parthenon is on the
 // Acropolis walk, not Plaka's).
-const otherStop = (x, s, mains) => mains.some(m => isFinite(m.lat) && !m.far && hav(x, m) < Math.min(0.3, hav(x, s)));
+const otherStop = (x, s, mains) => mains.some(m => KEngine.fin(m.lat) && !m.far && hav(x, m) < Math.min(0.3, hav(x, s)));
 const bigStop = (s, city) => !!(s && ((s.parts && s.parts.length >= 2) || partCands(s, city).length >= 2));
 const partsOn = s => (s.parts || []).filter((p, k) => !(s.partsOff || []).includes(k));
 // The stop's time follows the parts that are ticked.
@@ -10179,7 +10179,7 @@ function nextShow(sh, t) {
 // cost the day more than the show is worth, and the stop then says when the next one is). Nov 16.
 const SHOW_EARLY = 10, SHOW_MAX_WAIT = 30;
 function showWait(p, t) {
-  const sh = p && p.show; if (!sh || !(sh.every > 0) || !isFinite(t)) return 0;
+  const sh = p && p.show; if (!sh || !(sh.every > 0) || !KEngine.fin(t)) return 0;
   const n1 = nextShow(sh, t); if (n1 != null && n1 + 2 <= t + (p.minutes || 0)) return 0; // a show during the visit
   const n = nextShow(sh, t + SHOW_EARLY); if (n == null) return 0;
   const w = n - SHOW_EARLY - t; return w > 0 && w <= SHOW_MAX_WAIT ? w : 0;
@@ -10241,7 +10241,7 @@ const nearQuery = (la, ln, r) => { const A = `(around:${r},${la},${ln})`; return
 function nearFromOsm(d) {
   const seen = new Set(), out = [];
   for (const e of d.elements || []) { const t = e.tags || {}, lat = e.lat != null ? e.lat : e.center && e.center.lat, lng = e.lon != null ? e.lon : e.center && e.center.lon, name = t["name:en"] || t.name;
-    if (!name || !isFinite(lat) || seen.has(name.toLowerCase())) continue; seen.add(name.toLowerCase());
+    if (!name || !KEngine.fin(lat) || seen.has(name.toLowerCase())) continue; seen.add(name.toLowerCase());
     if (/^(memorial|boundary_stone|milestone|wayside_cross|wayside_shrine|tomb|grave)$/.test(t.historic || "") && !t.wikidata && !t.wikipedia) continue;
     out.push({ name, local: t.name && t.name !== name ? t.name : undefined, lat: +(+lat).toFixed(5), lng: +(+lng).toFixed(5), kind: t.tourism || t.historic || t.amenity || "", wd: t.wikidata || undefined, wiki: !!(t.wikipedia || t.wikidata), desc: (t.description || t.inscription || "").slice(0, 200) || undefined }); }
   return out.slice(0, 60);
@@ -10249,7 +10249,7 @@ function nearFromOsm(d) {
 const nearFailed = {};
 async function nearSights(s) {
   if (nearCache[s.id]) return nearCache[s.id];
-  if (!freeAI || !isFinite(s.lat)) return [];
+  if (!freeAI || !KEngine.fin(s.lat)) return [];
   const t = s.category + " " + s.name, r = /castle|palace|citadel|fortress|kremlin|acropolis|archaeolog|ancient|forum|monaster|abbey|park|garden|campus|cemetery|island|hill|complex/i.test(t) ? 450 : /old town|historic|quarter|district|village/i.test(t) ? 350 : AREA_CAT.test(t) ? 200 : 120;
   const keep = list => { delete nearFailed[s.id]; return (nearCache[s.id] = list.map(x => Object.assign(x, { m: Math.round(hav(x, s) * 1000), sl: x.wiki ? 5 : 0 }))); };
   try { const rr = await fetch(`${freeAI.url}/nearsights?lat=${s.lat}&lng=${s.lng}&r=${r}`); if (rr.ok) { const j = await rr.json(); return keep(j.sights || []); } nearWhy = rr.status + " " + (await rr.text()).slice(0, 300); } catch (e) { nearWhy = String(e).slice(0, 100); }
@@ -10265,7 +10265,7 @@ async function walkCands(s, city) {
   const pc = partCands(s, city), out = pc.slice(), mains = (city.sites || []).filter(x => !x.quick && x !== s);
   for (const x of await nearSights(s)) {
     if (out.length >= 14) break;
-    if (sameSight(x, s) || mains.some(m => sameSight(x, m) || (isFinite(m.lat) && hav(x, m) < 0.03 && nameMatch(m.name.split(" ")[0], x.name))) || otherStop(x, s, mains) || out.some(o => sameSight(x, o) || hav(x, o) < 0.015 || sameName(x, o))) continue;
+    if (sameSight(x, s) || mains.some(m => sameSight(x, m) || (KEngine.fin(m.lat) && hav(x, m) < 0.03 && nameMatch(m.name.split(" ")[0], x.name))) || otherStop(x, s, mains) || out.some(o => sameSight(x, o) || hav(x, o) < 0.015 || sameName(x, o))) continue;
     out.push(x);
   }
   // What each point really is, from Wikidata and Wikipedia: a person (a plaque or a grave named after someone) or a
@@ -10288,7 +10288,7 @@ async function walkCands(s, city) {
 const uniWords = n => String(n || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").split(/[^\p{L}\p{N}]+/u).filter(t => t.length > 1);
 // Two names for one small place: they share a telling word, allowing for grammar ("Αγία Σωτήρα" and "Αγίου Σωτήρα").
 const PART_SMALL = new Set("the of and church chapel tomb saint st holy agios agia agiou agion panagia ναος εκκλησια αγιος αγια αγιου αγιων ταφος παναγια san santa santo chiesa iglesia".split(" "));
-const sameName = (a, b) => { const tell = n => uniWords(n).filter(t => t.length > 3 && !PART_SMALL.has(t)).map(t => t.slice(0, 5)); const ta = new Set(tell(a.name).concat(tell(a.local))); return tell(b.name).concat(tell(b.local)).some(t => ta.has(t)) && (!isFinite(a.lat) || !isFinite(b.lat) || hav(a, b) < 0.06); };
+const sameName = (a, b) => { const tell = n => uniWords(n).filter(t => t.length > 3 && !PART_SMALL.has(t)).map(t => t.slice(0, 5)); const ta = new Set(tell(a.name).concat(tell(a.local))); return tell(b.name).concat(tell(b.local)).some(t => ta.has(t)) && (!KEngine.fin(a.lat) || !KEngine.fin(b.lat) || hav(a, b) < 0.06); };
 // One definition of "not in letters the traveler reads" for the whole app: the planner's (R-11). (The older test here
 // also called Vietnamese accents and the euro sign another script.)
 const nonLatin = n => typeof KEngine !== "undefined" && KEngine.otherScript ? KEngine.otherScript(n) : /[^\u0000-\u024f\s\d.,'’()\-–&]/.test(String(n || ""));
@@ -10506,7 +10506,7 @@ function trimPlaces(main, real, KEEP) {
 }
 async function cityInParts(prompt, show, label) {
   cityArea = null;
-  const okLL = x => x && x.name && isFinite(numV(x.lat)) && isFinite(numV(x.lng));
+  const okLL = x => x && x.name && KEngine.fin(numV(x.lat)) && KEngine.fin(numV(x.lng));
   const lang = P().lang || "English";
   const tail = ` Ignore any other counts above and keep each item as concise as the format allows. Write every summary, guide, lookFor, photoTip, pick, tip and note in ${lang}, even though the place is abroad; only place names and the local phrases stay in the local language.`;
   // Pieces that write named places get the guide's style rules but not the "how many places" rules,
@@ -10562,7 +10562,7 @@ async function cityInParts(prompt, show, label) {
     for (const [n, g] of grounded) {
       if (g.real || !mid) continue;
       const l = voyageListing(vg, n, ["see", "do", "listing", "buy"]);
-      if (l && isFinite(l.lat) && isFinite(l.lng) && hav(l, mid) <= (farSet.has(n) ? 250 : 40)) grounded.set(n, Object.assign({}, g, { real: true, lat: +l.lat.toFixed(5), lng: +l.lng.toFixed(5), voyage: true }));
+      if (l && KEngine.fin(l.lat) && KEngine.fin(l.lng) && hav(l, mid) <= (farSet.has(n) ? 250 : 40)) grounded.set(n, Object.assign({}, g, { real: true, lat: +l.lat.toFixed(5), lng: +l.lng.toFixed(5), voyage: true }));
       else { const x = srcStop(src, n); if (x && x.src.length >= 2 && x.lat != null && hav(x, mid) <= (farSet.has(n) ? 250 : 40)) grounded.set(n, Object.assign({}, g, { real: true, lat: x.lat, lng: x.lng, sources: true })); }
     }
     const real = n => grounded.get(n).real;
@@ -10653,7 +10653,7 @@ async function realPlaces(raw, label) {
   const realEats = (raw.restaurants || []).length && raw.restaurants.every(r => r.onMap);
   // eatsV: bump when the way places to eat are chosen improves; older guides get new restaurants (no AI needed).
   if (raw.verified >= 2 && raw.grounded && realEats && raw.startsOk >= STARTS_V && raw.eatsV === EATS_V) return raw;
-  const okLL = x => x && x.name && isFinite(numV(x.lat)) && isFinite(numV(x.lng));
+  const okLL = x => x && x.name && KEngine.fin(numV(x.lat)) && KEngine.fin(numV(x.lng));
   const pos = x => ({ lat: numV(x.lat), lng: numV(x.lng) });
   const post = (path, body) => fetch(freeAI.url + path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }).then(r => r.ok ? r.json() : null).catch(() => null);
   const sites = (raw.sites || []).filter(okLL), far = (raw.farther || []).filter(okLL);
@@ -10703,7 +10703,7 @@ async function realPlaces(raw, label) {
       const mp = good.find(p => nearStops(p) && (nameMatch(l.name, p.name) || nameMatch(p.name, l.name)));
       const note = l.content || "Recommended by travelers on Wikivoyage.";
       if (mp) { Object.assign(mp, { voyage: note, price: l.price || mp.price, web: mp.web || l.url, hours: mp.hours || l.hours }); const i = pick.indexOf(mp); if (i >= 0) pick.splice(i, 1); pick.unshift(mp); recs++; }
-      else if (isFinite(l.lat) && isFinite(l.lng) && nearStops(l) && !pick.some(p => nameMatch(p.name, l.name))) { pick.unshift({ name: l.name, lat: l.lat, lng: l.lng, amenity: l.type === "drink" ? "pub" : "restaurant", cuisine: "", hours: l.hours, web: l.url, voyage: note, price: l.price }); recs++; }
+      else if (KEngine.fin(l.lat) && KEngine.fin(l.lng) && nearStops(l) && !pick.some(p => nameMatch(p.name, l.name))) { pick.unshift({ name: l.name, lat: l.lat, lng: l.lng, amenity: l.type === "drink" ? "pub" : "restaurant", cuisine: "", hours: l.hours, web: l.url, voyage: note, price: l.price }); recs++; }
     }
     const nice = t => String(t || "").split(/[;,]/)[0].replace(/_/g, " ").replace(/^\w/, c => c.toUpperCase());
     raw.restaurants = pick.slice(0, 60).map(p => {
@@ -10775,7 +10775,7 @@ async function geocodeLodging(d) {
   try {
     const { text } = await sample(`Give the coordinates of "${L.name}" in or near ${d.destination}. Reply ONLY with JSON {"name": string, "lat": number, "lng": number}.`, { modelTier: "quick" });
     const j = parseJSON(text);
-    if (!isFinite(j.lat) || !isFinite(j.lng)) throw 0;
+    if (!KEngine.fin(j.lat) || !KEngine.fin(j.lng)) throw 0;
     L.ll = { lat: +j.lat, lng: +j.lng }; L.name = j.name || L.name;
     busy = null; save(); render();
   } catch (e) { busy = null; aiError = "Couldn't find that place. Try adding the street or neighborhood."; render(); }
@@ -10911,10 +10911,10 @@ function askContext(site, city, d) {
     ["hours", "closed", "tickets", "crowds", "access", "priceNote", "photoTip"].forEach(k => { if (site[k]) lines.push(k + ": " + site[k]); });
   }
   const here = site || (plan && plan.items && (plan.items.find(i => i.type === "stop") || {}).place);
-  if (here && isFinite(here.lat)) {
+  if (here && KEngine.fin(here.lat)) {
     const eats = (city.restaurants || []).filter(r => !r.generic && hav(r, here) <= 1).sort((a, b) => hav(a, here) - hav(b, here)).slice(0, 10);
     if (eats.length) lines.push("Real places to eat nearby (only recommend from this list): " + eats.map(r => `${r.name} (${r.cuisine || "restaurant"}, ${distTxt(hav(r, here))} away${r.recommended ? ", recommended by travelers" : ""}${r.crowdTop ? ", Kairoute Top Pick" : ""})`).join("; ") + ".");
-    const near = allSites(city).filter(x => x !== site && isFinite(x.lat) && hav(x, here) <= 1.5).slice(0, 10);
+    const near = allSites(city).filter(x => x !== site && KEngine.fin(x.lat) && hav(x, here) <= 1.5).slice(0, 10);
     if (near.length) lines.push("Other real sights nearby: " + near.map(x => `${x.name} (${distTxt(hav(x, here))})`).join("; ") + ".");
   }
   return lines.join("\n");
@@ -11305,7 +11305,7 @@ if (typeof window !== "undefined") window.__kairouteRunsThen = (iso, months) => 
 // Speed check: every ride of 4 km or more between the day's sights kept as an empty answer, as a phone has after the
 // helper answered "no lines" for most of them (what made Choose sights freeze, Nov 14).
 if (typeof window !== "undefined") window.__kairouteEmptyRides = i => { const c = cityFor(trip.days[i]), all = allSites(c); let n = 0; const kd = dayKind(planDow());
-  for (const x of all) for (const y of all) if (x !== y && isFinite(x.lat) && isFinite(y.lat) && hav(x, y) >= 4) { const k = pairKey(x, y) + "|" + kd; if (!transitMem[k]) { transitMem[k] = { opts: [], t: Date.now(), v: TRANSIT_V }; n++; } }
+  for (const x of all) for (const y of all) if (x !== y && KEngine.fin(x.lat) && KEngine.fin(y.lat) && hav(x, y) >= 4) { const k = pairKey(x, y) + "|" + kd; if (!transitMem[k]) { transitMem[k] = { opts: [], t: Date.now(), v: TRANSIT_V }; n++; } }
   nearGen++; return n; };
 if (typeof window !== "undefined") window.__kairouteTransitSet = pairs => { nearGen++; (pairs || []).forEach(x => { transitMem[pairKey(x.a, x.b) + (x.kd ? "|" + x.kd : "")] = { opts: x.opts, t: Date.now(), v: TRANSIT_V }; }); return Object.keys(transitMem).length; };
 if (typeof window !== "undefined") window.__kairouteMapLegs = () => { const d = day(), pl = buildPlan(d); return pl && !pl.error ? mapPlanData(pl, d).legs : []; };
@@ -11482,9 +11482,9 @@ function placeRel(a, b) { a = ownNamed(a); b = ownNamed(b);
   const loose = (w, g) => { const gw = keyOf(g).split(" "); return keyOf(String(w).replace(/\(.*?\)/g, " ")).split(" ").filter(t => t.length > 1 && !SMALL_WORDS.has(t) && !PLACE_GENERIC.has(t) && !PLACE_DESC.has(t) && !gw.some(x => x === t || (x.length > 4 && t.length > 4 && (x.startsWith(t.slice(0, 5)) || t.startsWith(x.slice(0, 5)))))); };
   if (a.wd && b.wd && a.wd === b.wd) return "same";
   // The same name far apart is two places (Nov 23 sight check: Lübeck's Holstentor took the id of a Hamburg one 59 km away).
-  if (isFinite(a.lat) && isFinite(b.lat) && hav(a, b) > 5) return "";
+  if (KEngine.fin(a.lat) && KEngine.fin(b.lat) && hav(a, b) > 5) return "";
   if (keyOf(a.name) === keyOf(b.name) || (nameMatch(a.name, b.name) && nameMatch(b.name, a.name) && !loose(a.name, b.name).length && !loose(b.name, a.name).length)) return "same";
-  const km = isFinite(a.lat) && isFinite(b.lat) ? hav(a, b) : null;
+  const km = KEngine.fin(a.lat) && KEngine.fin(b.lat) ? hav(a, b) : null;
   // Two names for the same building (another language, another source): the same kind of place (a church, a
   // museum...) at the same spot, or a few steps apart and sharing a telling word of their names.
   // Two different museums or churches can stand side by side ("Lena's House" by the Aegean Maritime Museum) and a
@@ -11528,7 +11528,7 @@ if (typeof window !== "undefined") window.__kairouteDedupe = (sites, farther) =>
 if (typeof window !== "undefined") window.__kairouteFamousAudit = () => { ensureBuiltins(); const out = [], seen = new Set();
   for (const k in cities) { const c = cities[k]; if (!c || seen.has(c)) continue; seen.add(c); const src = fameAsked[keyOf(c.city)];
     const all = allSites(c), row = { city: c.city, sources: !!(src && src !== true), missing: [], folded: [], far: [], wideFolds: [] };
-    for (const x of all) for (const m of x.merged || []) { const km = isFinite(m.lat) && isFinite(x.lat) ? hav(m, x) : null; if (km != null && km > 1 && !nameMatch(m.name, x.name) && !nameMatch(x.name, m.name)) row.wideFolds.push(`${m.name} -> ${x.name} (${km.toFixed(1)} km)`); }
+    for (const x of all) for (const m of x.merged || []) { const km = KEngine.fin(m.lat) && KEngine.fin(x.lat) ? hav(m, x) : null; if (km != null && km > 1 && !nameMatch(m.name, x.name) && !nameMatch(x.name, m.name)) row.wideFolds.push(`${m.name} -> ${x.name} (${km.toFixed(1)} km)`); }
     if (src && src !== true) {
       const vis = y => (y.src || []).some(t => /Wikivoyage|heritage|UNESCO/.test(t));
       const top = (src.stops || []).filter(y => y.lat != null && vis(y)).sort((a, b) => (b.sl || 0) - (a.sl || 0)).slice(0, 15), farTop = (src.far || []).slice().sort((a, b) => (b.sl || 0) - (a.sl || 0)).slice(0, 8);
@@ -11543,7 +11543,7 @@ if (typeof window !== "undefined") window.__kairouteDupCities = () => { ensureBu
 if (typeof window !== "undefined") window.__kairouteNameCheck = () => cleanCity({ sites: [{ name: { name: "Casa Gallardo" }, lat: 40.42, lng: -3.70 }, { name: {}, lat: 40.42, lng: -3.70 }, { name: "Plaza Mayor", lat: 40.415, lng: -3.707 }] }, "Madrid").sites.map(x => x.name);
 // Near twins: two sights of one city within 300 m whatever their names, with what the app knows of each (review tool).
 if (typeof window !== "undefined") window.__kairouteTwins = () => { ensureBuiltins(); const out = [], seen = new Set(), f = x => [x.name, x.srcOnly ? "src" : "guide", x.wd || "-", x.local || "-", x.category || "-"].join(" | ");
-  for (const k in cities) { const c = cities[k]; if (!c || seen.has(c)) continue; seen.add(c); const all = allSites(c).filter(x => isFinite(x.lat));
+  for (const k in cities) { const c = cities[k]; if (!c || seen.has(c)) continue; seen.add(c); const all = allSites(c).filter(x => KEngine.fin(x.lat));
     for (let i = 0; i < all.length; i++) for (let j = i + 1; j < all.length; j++) { const d = hav(all[i], all[j]); if (d > 0.3) continue; out.push(c.city + " " + Math.round(d * 1000) + "m " + (placeRel(all[i], all[j]) || placeRel(all[j], all[i]) || "apart") + ": " + f(all[i]) + "  <>  " + f(all[j])); } }
   return out; };
 if (typeof window !== "undefined") window.__kairouteDupScan = () => { ensureBuiltins(); const out = []; const seen = new Set(); for (const k in cities) { const c = cities[k]; if (!c || seen.has(c)) continue; seen.add(c); const all = allSites(c); for (let i = 0; i < all.length; i++) for (let j = i + 1; j < all.length; j++) { const r = placeRel(all[i], all[j]) || placeRel(all[j], all[i]); if (r) out.push(c.city + ": " + all[i].name + " / " + all[j].name + " (" + r + ")"); } } return out; };
@@ -11639,7 +11639,7 @@ function carryGuide(prev, c) {
 }
 if (typeof window !== "undefined") {
   // Test hooks: a fresh guide that lost sights gets them back; naming a sight the guide has never makes a copy.
-  window.__kairouteCarryCheck = () => { const city = cityFor(day()); if (!city) return null; const prev = JSON.parse(JSON.stringify(city)), c = JSON.parse(JSON.stringify(city)); const gone = c.sites.splice(0, 2).concat((c.farther || []).splice(0, 1)); carryGuide(prev, c); return { gone: gone.map(x => x.name), back: gone.filter(x => allSites(c).some(y => samePlace(x, y))).map(x => x.name), dup: allSites(c).length - allSites(prev).length, lost: allSites(prev).filter(x => !allSites(c).some(y => y.id === x.id || y.id === x.id + "-k")).map(x => x.name + (isFinite(x.lat) ? "" : " (no map spot)")) }; };
+  window.__kairouteCarryCheck = () => { const city = cityFor(day()); if (!city) return null; const prev = JSON.parse(JSON.stringify(city)), c = JSON.parse(JSON.stringify(city)); const gone = c.sites.splice(0, 2).concat((c.farther || []).splice(0, 1)); carryGuide(prev, c); return { gone: gone.map(x => x.name), back: gone.filter(x => allSites(c).some(y => samePlace(x, y))).map(x => x.name), dup: allSites(c).length - allSites(prev).length, lost: allSites(prev).filter(x => !allSites(c).some(y => y.id === x.id || y.id === x.id + "-k")).map(x => x.name + (KEngine.fin(x.lat) ? "" : " (no map spot)")) }; };
   window.__kairouteFind = name => { const n = allSites(cityFor(day())).length; addPlaces(day(), name); return { before: n, after: allSites(cityFor(day())).length }; };
 }
 // A new guide for the city carries every pick to the same sight; the app's own list stays the app's (Nov 16: on the
@@ -12572,7 +12572,7 @@ function loadImg(src) {
 }
 // The place's own photo from Wikipedia: articles within 400 m of the place, matched by name.
 async function spotPhoto(p) {
-  if (!p || !isFinite(p.lat) || !isFinite(p.lng)) return null;
+  if (!p || !KEngine.fin(p.lat) || !KEngine.fin(p.lng)) return null;
   const k = keyOf(p.name); if (memImgCache.has(k)) return memImgCache.get(k);
   let img = null;
   try {
@@ -12894,7 +12894,7 @@ function stopCost(plan, s) {
   if (i > 0 && i < pts.length - 1) return { onRoute: true, min: Math.round(tmin(pts[i - 1], s) + tmin(s, pts[i + 1]) - tmin(pts[i - 1], pts[i + 1]) + mins(s)), spare };
   let best = Infinity;
   for (let k = 0; k < pts.length - 1; k++) best = Math.min(best, tmin(pts[k], s) + tmin(s, pts[k + 1]) - tmin(pts[k], pts[k + 1]));
-  if (!isFinite(best)) best = tmin(pts[0] || plan.w.head[0], s) * 2;
+  if (!KEngine.fin(best)) best = tmin(pts[0] || plan.w.head[0], s) * 2;
   return { min: Math.round(best + mins(s)), spare, alone: !plan.stops.length };
 }
 // Where a pick is on today's plan, so the list and the Day plan always agree on every pick.
@@ -12925,7 +12925,7 @@ function rememberPick(d, s) { if (!s) return; d.pickNames = d.pickNames || {}; d
 function siteAnchor(d, city) {
   if (!d.anchor || !(d.selected || []).includes(d.anchor)) return null;
   const s = allSites(city).find(x => x.id === d.anchor);
-  return s && isFinite(s.lat) && isFinite(s.lng) ? s : null;
+  return s && KEngine.fin(s.lat) && KEngine.fin(s.lng) ? s : null;
 }
 // After a pick, bring the top of the sights list into view (its own scroll pane on tablets, the page on phones)
 // and give the picked card a brief highlight so it's clear what moved.
@@ -12940,7 +12940,7 @@ function jumpToAnchor() {
   const card = pane.querySelector(".site.anchor"); if (card) { card.classList.add("flash"); setTimeout(() => card.classList.remove("flash"), 1200); }
 }
 // Closest to the anchor first; anything without a spot on the map keeps its order at the end.
-function nearKm(x, refs) { if (!isFinite(x.lat) || !isFinite(x.lng)) return Infinity; let m = Infinity; for (const r of refs) if (r !== x) m = Math.min(m, hav(r, x)); return m; }
+function nearKm(x, refs) { if (!KEngine.fin(x.lat) || !KEngine.fin(x.lng)) return Infinity; let m = Infinity; for (const r of refs) if (r !== x) m = Math.min(m, hav(r, x)); return m; }
 function nearSort(xs, refs) {
   refs = Array.isArray(refs) ? refs : [refs];
   const km = x => nearKm(x, refs);
@@ -12985,7 +12985,7 @@ let openCard = null, picksOpen = true; // the traveler's own sights show first, 
 // is worked out for this day; the guide's words are not). The same words the screen rule looks for (KScreenAdvice).
 function planNote(t, plan) {
   if (!t || typeof t !== "string") return t || "";
-  const hard = !!(plan && plan.w && (plan.w.hard || isFinite(plan.w.endBy)));
+  const hard = !!(plan && plan.w && (plan.w.hard || KEngine.fin(plan.w.endBy)));
   if (!hard || typeof KScreenAdvice === "undefined") return t;
   return t.replace(new RegExp(KScreenAdvice.source, "gi"), "").replace(/\s{2,}/g, " ").trim();
 }
@@ -13001,7 +13001,7 @@ function siteCard(s, d, plan, nr) {
   const townKids = kids.filter(k => (k.town != null && String(k.town) === String(s.id)) || (sel.includes(k.id) && !sel.includes(s.id))), inclKids = kids.filter(k => !townKids.includes(k));
   const tickOn = sel.includes(s.id);
   // How far from where the day starts (the list's order), so the line never changes as you tick.
-  const st = nr && nr.st, near = st && isFinite(s.lat) && isFinite(s.lng) ? hav(st, s) : null, nearTo = st;
+  const st = nr && nr.st, near = st && KEngine.fin(s.lat) && KEngine.fin(s.lng) ? hav(st, s) : null, nearTo = st;
   const other = plannedElsewhere(d)[s.id];
   let badge = "", fs;
   if (!on && plan && !plan.error) {
@@ -13080,7 +13080,7 @@ let listRoom = 0, listRoomKey = "";
 function placeRoom() { const m = document.querySelector("#view .sitesmain"); if (!m) return; let sp = m.querySelector(":scope > .keeproom");
   if (!sp) { sp = document.createElement("div"); sp.className = "keeproom"; sp.setAttribute("aria-hidden", "true"); m.appendChild(sp); } sp.style.height = listRoom + "px"; }
 // Separate stops a few steps apart (a square and the clock on it) say so, so neither looks missing.
-function nextDoor(s, city) { if (!city || s.far || !isFinite(s.lat)) return ""; const n = (city.sites || []).filter(x => x !== s && !x.quick && isFinite(x.lat) && hav(x, s) <= 0.15).slice(0, 3); return n.length ? `<p class="travelnote">Right next to: ${n.map(x => esc(x.name)).join(", ")} (${n.length > 1 ? "their own stops" : "its own stop"})</p>` : ""; }
+function nextDoor(s, city) { if (!city || s.far || !KEngine.fin(s.lat)) return ""; const n = (city.sites || []).filter(x => x !== s && !x.quick && KEngine.fin(x.lat) && hav(x, s) <= 0.15).slice(0, 3); return n.length ? `<p class="travelnote">Right next to: ${n.map(x => esc(x.name)).join(", ")} (${n.length > 1 ? "their own stops" : "its own stop"})</p>` : ""; }
 const elsewhereNote = plan => { const ex = (plan && plan.elsewhere) || []; if (!ex.length) return ""; const by = (f, w) => ex.filter(f).map(x => `<b>${esc(x.s.name)}</b>`).join(", ") + (w || ""); const e = ex.filter(x => x.earlier), l = ex.filter(x => x.later), on = xs => [...new Set(xs.map(x => fmtDow(x.on.date) + " " + fmtDate(x.on.date)))].join(" and ");
   return `<div class="banner"><span>${e.length ? `Already on your plan for ${esc(on(e))}, so not repeated today: ${by(x => x.earlier)}. ` : ""}${l.length ? `No room today, so you'll see ${by(x => x.later)} on ${esc(on(l))}.` : ""}</span></div>`; };
 // The meter counts only what the traveler chose (picks, the meals that come with them, getting around) plus
@@ -13141,7 +13141,7 @@ const frozenKey = (d, city) => trip.days.indexOf(d) + "|" + keyOf(city.city) + "
 // Sightseeing starts after the last of the day's opening steps (the hotel after an airport arrival).
 function startOf(d, city) {
   const w = dayWindowSafe(d, city); if (!w || w.error || !w.head || !w.head.length) return null;
-  const last = w.head[w.head.length - 1], L = lodgingFor(d, city), ok = x => x && isFinite(x.lat) && isFinite(x.lng);
+  const last = w.head[w.head.length - 1], L = lodgingFor(d, city), ok = x => x && KEngine.fin(x.lat) && KEngine.fin(x.lng);
   if (!ok(last)) return null;
   const label = ok(L) && hav(L, last) < 0.05 ? "your hotel" : /port|embark/.test(d.type) || last.leaveWhenReady ? "the ship" : showName(w.head[0]) || "your start";
   return { lat: +last.lat, lng: +last.lng, name: label };
@@ -13180,7 +13180,7 @@ function nestMap(city) {
   const big = (A, M) => (A.minutes || 0) > (M.minutes || 0) || ((A.minutes || 0) === (M.minutes || 0) && String(A.id) < String(M.id));
   const par = new Map();
   for (const M of all) {
-    if (!isFinite(M.lat)) continue;
+    if (!KEngine.fin(M.lat)) continue;
     // Inside means inside its grounds (Richard, Nov 17: Mars Hill is its own site, just below the Acropolis, free and
     // outside the fence). Wikidata's "located in" (P276) counts; its looser "part of" (P361) only for a sight standing
     // right at the main one (a clock in its cathedral's tower), never one a short walk away.
@@ -13233,7 +13233,7 @@ function renderSites(d) {
   if (!pickFrozen || pickFrozen.key !== frozenKey(d, city)) pickFrozen = { key: frozenKey(d, city), sec: new Map(), ord: new Map(), n: 0, city, nest: nestMap(city), fresh: true, secs: new Map(), settled: false, t0: Date.now() };
   const kept = pickFrozen.fresh ? null : pickFrozen.sec; pickFrozen.fresh = false; // a sight already in the list stays in its place (one that stops fitting this visit too)
   const all = allSites(city).filter(x => (!laterIds.has(x.id) || (kept && kept.has(x.id))) && !parentOf(x, city) && (pass(x) || on(x)));
-  const st = startOf(d, city), dist = x => st && isFinite(x.lat) && isFinite(x.lng) ? hav(st, x) : 1e9;
+  const st = startOf(d, city), dist = x => st && KEngine.fin(x.lat) && KEngine.fin(x.lng) ? hav(st, x) : 1e9;
   const full = (() => { if (!plan || plan.error) return false; const m = meterCalc(plan, d); return !!(m && (m.over || m.dropped.length)); })();
   // The list sorts itself into sections (Richard, Nov 19: "Your picks, still fit, also see (further locations), already
   // picked, and don't fit ... it automatically organizes it"), each from the one full-day "fits" check (siteFits): a
@@ -13422,10 +13422,10 @@ function loadMapLib() {
 // Everything the map shows for one plan: the points in order and the legs between them.
 function mapPlanData(plan, d) {
   const pts = [], legs = []; let n = 0, last = null, pending = [];
-  const seen = new Set(), ll = q => q && isFinite(q.lat) && isFinite(q.lng) ? [q.lng, q.lat] : null;
+  const seen = new Set(), ll = q => q && KEngine.fin(q.lat) && KEngine.fin(q.lng) ? [q.lng, q.lat] : null;
   plan.items.forEach(it => {
     if (it.type === "travel") { pending.push(it); return; }
-    const p = it.place; if (!p || !isFinite(p.lat) || !isFinite(p.lng)) return;
+    const p = it.place; if (!p || !KEngine.fin(p.lat) || !KEngine.fin(p.lng)) return;
     // Each ride from where it starts to where it ends: rides in a row (to the ferry pier, then the boat) meet at the pier,
     // so the boat is drawn pier to pier and the way to the pier on the streets (Nov 18, Naples).
     if (last) pending.forEach((t, j) => { const o = t.leg.transit, kind = legKind(t.leg);
@@ -13477,7 +13477,7 @@ const rtMem = new Map(), rtAsked = new Set(); let rtQueue = [], rtBusy = false;
 const rtKey = (m, a, b) => m + ":" + (+a.lat).toFixed(4) + "," + (+a.lng).toFixed(4) + ">" + (+b.lat).toFixed(4) + "," + (+b.lng).toFixed(4);
 // Every street route known so far, as { a, b, car, foot } (R-33: the engine times a ride near a known one from it).
 function routeKnown() { const by = new Map();
-  for (const [k, v] of rtMem) { const m = /^(foot|car):(-?[\d.]+),(-?[\d.]+)>(-?[\d.]+),(-?[\d.]+)$/.exec(k); if (!m || !v || !isFinite(v.km)) continue; const pk = m.slice(2).join(",");
+  for (const [k, v] of rtMem) { const m = /^(foot|car):(-?[\d.]+),(-?[\d.]+)>(-?[\d.]+),(-?[\d.]+)$/.exec(k); if (!m || !v || !KEngine.fin(v.km)) continue; const pk = m.slice(2).join(",");
     const r = by.get(pk) || { a: { lat: +m[2], lng: +m[3] }, b: { lat: +m[4], lng: +m[5] }, car: null, foot: null }; r[m[1]] = v; by.set(pk, r); }
   return [...by.values()]; }
 function routeTimeOf(a, b) { const f = rtMem.get(rtKey("foot", a, b)), c = rtMem.get(rtKey("car", a, b)); return f || c ? { foot: f || null, car: c || null } : null; }
@@ -13485,13 +13485,13 @@ async function askRouteTimes(pairs) {
   for (const [m, a, b] of pairs) { const k = rtKey(m, a, b); if (rtAsked.has(k) || rtMem.has(k)) continue; rtAsked.add(k);
     const kept = await kv.get("rt:" + k).catch(() => null);
     // A walk kept from before climbs were read (no `up` at all) is used as it is and asked again once, for its climb (R-33, E48).
-    if (kept && isFinite(kept.km)) { rtMem.set(k, kept); if (m === "car" || "up" in kept) continue; } rtQueue.push([m, a, b, k]); }
+    if (kept && KEngine.fin(kept.km)) { rtMem.set(k, kept); if (m === "car" || "up" in kept) continue; } rtQueue.push([m, a, b, k]); }
   if (rtBusy || !rtQueue.length || !freeAI || (typeof navigator !== "undefined" && navigator.onLine === false)) { if (rtMem.size) nearGen++; return; }
   rtBusy = true; let got = 0;
   try { while (rtQueue.length) { const part = rtQueue.splice(0, 20);
       const r = await fetch(freeAI.url + "/route", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ legs: part.map(([m, a, b]) => ({ m: m === "car" ? "car" : "foot", a: [+a.lng, +a.lat], b: [+b.lng, +b.lat] })) }) });
       if (!r.ok) break; const j = await r.json();
-      part.forEach(([m, a, b, k], i) => { const rt = (j.routes || [])[i]; if (rt && isFinite(rt.km) && isFinite(rt.min)) { const v = { km: +rt.km, min: +rt.min }; if (m !== "car") { v.up = isFinite(rt.up) ? +rt.up : null; v.down = isFinite(rt.down) ? +rt.down : null; } rtMem.set(k, v); kv.set("rt:" + k, v); got++; } }); } }
+      part.forEach(([m, a, b, k], i) => { const rt = (j.routes || [])[i]; if (rt && KEngine.fin(rt.km) && KEngine.fin(rt.min)) { const v = { km: +rt.km, min: +rt.min }; if (m !== "car") { v.up = KEngine.fin(rt.up) ? +rt.up : null; v.down = KEngine.fin(rt.down) ? +rt.down : null; } rtMem.set(k, v); kv.set("rt:" + k, v); got++; } }); } }
   catch (e) {} finally { rtBusy = false; }
   if (got) transitShow();
 }
@@ -13631,7 +13631,7 @@ function eventsFor(d, city) {
     const nth = ["first", "second", "third", "fourth", "last"][Math.min(4, Math.floor((dt.getDate() - 1) / 7))];
     const recurring = (vg ? vg.listings : []).filter(l => /festival|fair\b|parade|art ?walk|farmers'? market|night market|rodeo|carnival|fiesta|concert series|regatta|season/i.test(l.name + " " + l.content))
       .filter(l => new RegExp("\\b(" + month + "|every " + dow + "|" + dow + "s\\b|" + nth + " " + dow + ")", "i").test(l.content + " " + l.hours))
-      .slice(0, 4).map(l => ({ name: l.name, date: d.date, time: "", venue: "", lat: isFinite(l.lat) ? l.lat : null, lng: isFinite(l.lng) ? l.lng : null, url: l.url || "", kind: "Local tradition", genre: "", note: l.content.slice(0, 200), src: "Wikivoyage" }));
+      .slice(0, 4).map(l => ({ name: l.name, date: d.date, time: "", venue: "", lat: KEngine.fin(l.lat) ? l.lat : null, lng: KEngine.fin(l.lng) ? l.lng : null, url: l.url || "", kind: "Local tradition", genre: "", note: l.content.slice(0, 200), src: "Wikivoyage" }));
     eventsCache[k] = { done: true, events: (tm.events || []).concat(recurring) };
     if (view === "plan") dataRender(true); // events never change a plan
   });
@@ -13690,10 +13690,10 @@ function farEatsMerge(city) {
 // The day's stops (and where the traveler stays) that have no known place to eat close by yet.
 function farEatsBare(city, d, all) {
   const k = keyOf(city.city), st = farEats[k] || (farEats[k] = { list: [], done: [] });
-  const sel = allSites(city).filter(x => (d.selected || []).includes(x.id) && isFinite(x.lat) && isFinite(x.lng));
+  const sel = allSites(city).filter(x => (d.selected || []).includes(x.id) && KEngine.fin(x.lat) && KEngine.fin(x.lng));
   // Where the traveler stays too, for the suggested dinner at the end of the day.
   const L = (d.type === "land" || d.type === "arrival") ? lodgingFor(d, city) : null;
-  if (L && isFinite(L.lat) && isFinite(L.lng)) sel.push({ id: "stay-" + keyOf(L.name).replace(/ /g, "-"), name: L.name, lat: L.lat, lng: L.lng });
+  if (L && KEngine.fin(L.lat) && KEngine.fin(L.lng)) sel.push({ id: "stay-" + keyOf(L.name).replace(/ /g, "-"), name: L.name, lat: L.lat, lng: L.lng });
   // A stop counts as bare with no place to eat close by; where the traveler stays, with fewer than 8
   // (lunches on other days use some of them, and dinner needs a choice of its own).
   return sel.filter(x => !st.done.includes(x.id) && (all || !farAsked.has(k + "|" + x.id)) && (city.restaurants || []).filter(r => hav(r, x) <= 0.8).length < (/^stay-/.test(x.id) ? 8 : 1));
@@ -13847,7 +13847,7 @@ function renderPlan(d) {
   // (collecting bags, a cable car's queue down) (screen check, Nov 22: free time printed after bags were collected).
   const freeAt = lastAshoreIdx(plan) + 1;
   // After the free time the way back follows on the clock: its rides and fixed steps start when the free time ends.
-  const freeShift = freeOn && plan.items[freeAt] && isFinite(plan.items[freeAt].time) && F.leaveBy > plan.items[freeAt].time ? F.leaveBy - plan.items[freeAt].time : 0;
+  const freeShift = freeOn && plan.items[freeAt] && KEngine.fin(plan.items[freeAt].time) && F.leaveBy > plan.items[freeAt].time ? F.leaveBy - plan.items[freeAt].time : 0;
   // Free time before a meal: the wait sits where it is spent, after the stop before it and before the way there.
   const mealFree = (mi, it) => { const m = plan.items[mi]; if (!m || m.type !== "meal" || !(m.early >= MEAL_FREE) || m.place.onBoard || m.place.packed) return "";
     const lg = it && it.type === "travel" ? it.leg.min || 0 : 0, go = m.time - lg, from = plan.items.slice(0, mi).reverse().find(x => x.type !== "travel");
@@ -14301,11 +14301,11 @@ function onGeo(pos) {
   const first = geoState !== "on"; geoState = "on"; geoMsg = "";
   const T = trip.tour; if (view !== "tour" || !T) { if (first) renderGuideOnly(); return; }
   const st = tourSteps(buildPlan(day()))[T.i];
-  const target = st && st.place && isFinite(st.place.lat) ? st.place : null;
+  const target = st && st.place && KEngine.fin(st.place.lat) ? st.place : null;
   const km = target ? hav(geoPos, target) : null;
   if (T.phase === "walk" && km != null && km <= Math.max(ARRIVE_KM, Math.min(0.12, (geoPos.acc || 0) / 1000))) { arriveHere(true); return; }
   if (T.phase === "at" && st && st.type === "stop" && st.place.parts && partsOn(st.place).length >= 2) { const pp = partPlan(st.place, st.time).list, nx = pp[(T.part || 0) + 1];
-    if (nx && isFinite(nx.p.lat) && hav(geoPos, nx.p) <= Math.max(0.025, Math.min(0.05, (geoPos.acc || 0) / 1000)) && (!speakingId || !String(speakingId).startsWith("part:"))) { tourPart(true); return; } }
+    if (nx && KEngine.fin(nx.p.lat) && hav(geoPos, nx.p) <= Math.max(0.025, Math.min(0.05, (geoPos.acc || 0) / 1000)) && (!speakingId || !String(speakingId).startsWith("part:"))) { tourPart(true); return; } }
   if (first) renderGuideOnly();
   const el = document.getElementById("geoDist");
   if (el && km != null) el.textContent = distTxt(km, true) + " to go";
@@ -14716,7 +14716,7 @@ function areaParse(d, pts) {
 async function areaScan(city) {
   if (!city || typeof fetch !== "function") return;
   const k = keyOf(city.city); if (areaAsked[k] && Date.now() - areaAsked[k] < 600000) return; areaAsked[k] = Date.now();
-  const need = allSites(city).filter(s => !s.quick && !s.far && isFinite(s.lat) && isFinite(s.lng) && !(areaKey(s) in areaMem)).slice(0, 80);
+  const need = allSites(city).filter(s => !s.quick && !s.far && KEngine.fin(s.lat) && KEngine.fin(s.lng) && !(areaKey(s) in areaMem)).slice(0, 80);
   if (!need.length) return;
   const q = areaQuery(need);
   for (const ep of AREA_EPS) {
@@ -14740,7 +14740,7 @@ function areaIs(a, A) {
 }
 // Sight M stands inside area A (by the map's boundaries).
 function inArea(M, A) {
-  if (!M || !A || M === A || M.id === A.id || !isFinite(M.lat) || !isFinite(A.lat) || M.quick || A.quick) return false;
+  if (!M || !A || M === A || M.id === A.id || !KEngine.fin(M.lat) || !KEngine.fin(A.lat) || M.quick || A.quick) return false;
   const L = areaMem[areaKey(M)]; if (!L || !L.length) return false;
   if (sameSight(M, A) || hav(M, A) > AREA_NEAR) return false;
   return L.some(a => areaIs(a, A));
@@ -14766,7 +14766,7 @@ function areaBlock(A, mem, d) {
     mustSee: !!(A.mustSee || order.some(m => m.mustSee)), unesco: !!(A.unesco || order.some(m => m.unesco)), fame: Math.max(A.fame || 0, ...order.map(m => m.fame || 0)),
     oh: parts[0].oh, cw: parts[0].cw, show: null, far: !!(A.far || order.some(m => m.far)) });
   b.areaFull = b.minutes;
-  if (ownOrd) { const v = Math.min(...b.foldOf.map(x => ownOrd.has(x.id) ? ownOrd.get(x.id) : Infinity)); if (isFinite(v)) ownOrd.set(b.id, v); }
+  if (ownOrd) { const v = Math.min(...b.foldOf.map(x => ownOrd.has(x.id) ? ownOrd.get(x.id) : Infinity)); if (KEngine.fin(v)) ownOrd.set(b.id, v); }
   return b;
 }
 // The day's picks with every area and the picked sights inside it made into one visit. Nested areas (the Sistine
@@ -14803,7 +14803,7 @@ function areaHead(it) {
 }
 // Test hooks (tools/area-check.cjs): the map's answers, sights added to a day's guide, and what the plan made of them.
 if (typeof window !== "undefined") window.__kairouteArea = {
-  mem: () => areaMem, keysFor: i => allSites(cityFor(trip.days[i])).filter(x => isFinite(x.lat)).map(x => ({ id: x.id, key: areaKey(x) })), set: m => { areaMem = Object.assign({}, areaMem, m); Object.values(cities).forEach(c => { if (c) c.areaV = (c.areaV || 0) + 1; }); planGen++; dataGen++; }, inArea: (a, b) => inArea(a, b), query: areaQuery, parse: areaParse,
+  mem: () => areaMem, keysFor: i => allSites(cityFor(trip.days[i])).filter(x => KEngine.fin(x.lat)).map(x => ({ id: x.id, key: areaKey(x) })), set: m => { areaMem = Object.assign({}, areaMem, m); Object.values(cities).forEach(c => { if (c) c.areaV = (c.areaV || 0) + 1; }); planGen++; dataGen++; }, inArea: (a, b) => inArea(a, b), query: areaQuery, parse: areaParse,
   addSites: (i, list) => { const c = cityFor(trip.days[i]); list.forEach(x => { const o = (c.sites || []).find(y => y.id === x.id); if (o) Object.assign(o, x); else c.sites.push(x); }); planGen++; return allSites(c).map(x => x.id); },
   plan: i => { const d = trip.days[i]; bonusMemo = new Map(); mealMemo = new Map(); keptMemo = new Map(); eveMemo = new Map(); avoidMeals = new Set(); const p = buildPlan(d); if (!p || p.error) return { error: p && p.error };
     let lv = null; try { const st = alarmState(d, p, { before: true }); lv = { at: st.leaveBy, from: st.from && st.from.name }; } catch (e) { lv = { err: String(e) }; }
@@ -15307,13 +15307,13 @@ function dayFacts(d, plan) {
   let back = 0; for (let k = j + 1; j >= 0 && k < its.length; k++) { const it = its[k]; if (it.type === "travel") back += (it.leg && it.leg.min) || 0;
     else if (it.type === "fixed") back += (it.place && it.place.minutes) || 0; else if (it.type === "end") break; }
   let leaveBy = plan.endBy - back;
-  if (fixed && typeof alarmState === "function") { try { const st = alarmState(d, plan); if (st && isFinite(st.leaveBy)) leaveBy = Math.min(leaveBy, st.leaveBy); } catch (e) {} }
+  if (fixed && typeof alarmState === "function") { try { const st = alarmState(d, plan); if (st && KEngine.fin(st.leaveBy)) leaveBy = Math.min(leaveBy, st.leaveBy); } catch (e) {} }
   const aa = (d.type === "port" || d.type === "embark") && d.allAboard ? shipToPort(d, d.allAboard) : null;
   // The time left is never more than the time from the end of the last stop to the leave-by: a boat back on its own
   // sailings keeps the plan's time, so minutes the plan is back early are spare at the ship, never free time where the
   // traveler is (Nov 24, tester round 7b, Naples: "Free time: 36 min, until 1:42 pm" right after a lunch ending 1:42 pm).
   const L0 = j >= 0 ? its[j] : null, lastEnd = !L0 ? null : L0.time + (L0.type === "meal" ? ((L0.meal && L0.meal.len) || 0) : L0.type === "start" ? 0 : ((L0.place && L0.place.minutes) || 0));
-  const leftHere = lastEnd != null && isFinite(leaveBy) && isFinite(lastEnd) ? Math.min(left, Math.max(0, Math.round(leaveBy - lastEnd))) : left;
+  const leftHere = lastEnd != null && KEngine.fin(leaveBy) && KEngine.fin(lastEnd) ? Math.min(left, Math.max(0, Math.round(leaveBy - lastEnd))) : left;
   return { start: plan.start, endBy: plan.endBy, len: plan.endBy - plan.start, finish: plan.end, left: leftHere, back, leaveBy, fixed: !!fixed, allAboard: aa, over: !!plan.over };
 }
 // How the hours read, the same on every screen: "08:00–18:30" and "10 h 30 min".
@@ -15403,11 +15403,11 @@ function setDayHours(d, startStr, endStr) {
   const plan = buildPlan(d); if (!plan || plan.error) return false;
   const lim = hoursLimits(d, plan); if (!lim) return false;
   let s = lim.startFixed ? lim.from : toMin(startStr || d.startTime);
-  if (!isFinite(s)) s = lim.from;
+  if (!KEngine.fin(s)) s = lim.from;
   s = Math.max(lim.minStart, Math.min(22 * 60, s));
   // The end the traveler had stays put when only the start moves (later start = shorter day, earlier = longer).
   let e = endStr ? toMin(endStr) : plan.endBy;
-  if (!isFinite(e)) e = plan.endBy;
+  if (!KEngine.fin(e)) e = plan.endBy;
   e = Math.max(s + 60, Math.min(lim.maxEnd, e));
   const h = Math.max(HRS_MIN, hoursBetween(s, e));
   snapTimes(d);
@@ -15671,7 +15671,7 @@ function fixedWhy(d, newSight) {
 }
 // The smallest change to today's times that fits everything: start earlier (same finish), or finish later.
 function timeOptions(d, sel) {
-  if (timesFixed(d) || !isFinite(+d.hours) || !d.startTime) return [];
+  if (timesFixed(d) || !KEngine.fin(d.hours) || !d.startTime) return [];
   const out = [], st = toMin(d.startTime), h0 = +d.hours;
   for (let x = 30; x <= 240 && st - x >= 6 * 60; x += 30) { const t = { startTime: fmt(st - x), hours: h0 + x / 60 }, r = fitTrial(d, sel, t); if (fitsAll(r)) { out.push(Object.assign({ kind: "earlier", end: r.m.endBy }, t)); break; } }
   for (let h = h0 + 0.5; h <= h0 + 6; h += 0.5) { const r = fitTrial(d, sel, { hours: h }); if (!r.m || r.m.endBy > 23 * 60) break; if (fitsAll(r)) { out.push({ kind: "later", hours: h, end: r.m.endBy }); break; } }
@@ -16103,7 +16103,7 @@ async function gxNearDirect(what, lat, lng) {
     try {
       const r = await fetch(ep, { method: "POST", body: "data=" + encodeURIComponent(q), headers: { "content-type": "application/x-www-form-urlencoded" }, signal: AbortSignal.timeout(15000) });
       if (!r.ok) continue; const d = await r.json(); if (d.remark && !(d.elements || []).length) continue;
-      const list = (d.elements || []).map(e => { const t = e.tags || {}, la = e.lat != null ? e.lat : e.center && e.center.lat, ln = e.lon != null ? e.lon : e.center && e.center.lon; if (!isFinite(la)) return null;
+      const list = (d.elements || []).map(e => { const t = e.tags || {}, la = e.lat != null ? e.lat : e.center && e.center.lat, ln = e.lon != null ? e.lon : e.center && e.center.lon; if (!KEngine.fin(la)) return null;
         return what === "view" ? { name: t["name:en"] || t.name || "", local: t.name && t["name:en"] && t.name !== t["name:en"] ? t.name : undefined, lat: +(+la).toFixed(5), lng: +(+ln).toFixed(5), wd: t.wikidata || undefined, desc: (t.description || "").slice(0, 160) || undefined }
           : { kind: t.amenity === "bank" ? "atm" : t.amenity, name: t["name:en"] || t.name || t.operator || t.brand || "", lat: +(+la).toFixed(5), lng: +(+ln).toFixed(5), fee: t.fee || undefined, hours: t.opening_hours || undefined, wheelchair: t.wheelchair || undefined, access: t.access || undefined }; }).filter(x => x && (what !== "view" || x.name));
       return what === "view" ? { spots: list.slice(0, 120), source: "OpenStreetMap" } : { places: list.slice(0, 120), source: "OpenStreetMap" };
@@ -16111,9 +16111,9 @@ async function gxNearDirect(what, lat, lng) {
   }
   return null;
 }
-const gxStopsOf = plan => plan.items.filter(i => i.type === "stop" && i.place && isFinite(i.place.lat));
+const gxStopsOf = plan => plan.items.filter(i => i.type === "stop" && i.place && KEngine.fin(i.place.lat));
 function gxCenter(city) {
-  const pts = (city.sites || []).filter(x => isFinite(x.lat)).slice(0, 12);
+  const pts = (city.sites || []).filter(x => KEngine.fin(x.lat)).slice(0, 12);
   return pts.length ? { lat: pts.reduce((a, x) => a + x.lat, 0) / pts.length, lng: pts.reduce((a, x) => a + x.lng, 0) / pts.length } : null;
 }
 const gxMapLink = p => `https://www.google.com/maps/search/?api=1&query=${p.lat.toFixed(5)},${p.lng.toFixed(5)}`;
@@ -16163,7 +16163,7 @@ function gxLight(d, city) {
 }
 // Where the plan has the traveler at a given time (the stop they're at, or the last one they left).
 function gxWhereAt(plan, t) {
-  let at = null; for (const it of plan.items) { if (it.time > t) break; if (it.place && isFinite(it.place.lat)) at = it; }
+  let at = null; for (const it of plan.items) { if (it.time > t) break; if (it.place && KEngine.fin(it.place.lat)) at = it; }
   return at;
 }
 function gxViewpoints(plan) {
@@ -16235,7 +16235,7 @@ function gxStopWarnings(s, city) {
 const GX_AMEN = [["toilets", /rest ?room|toilet|bathroom|\bwc\b|lavator|loo\b|washroom|pee\b/i, "Public restrooms"], ["drinking_water", /water|fountain|refill|thirst/i, "Drinking water"], ["pharmacy", /pharmac|chemist|drug ?store|medicine|plaster|band-?aid/i, "Pharmacies"], ["atm", /\batm\b|cash|money machine|bank|withdraw/i, "Cash machines"]];
 async function askExtra(site, city, q) {
   const want = GX_AMEN.filter(a => a[1].test(q)); if (!want.length || !freeAI) return "";
-  const here = (geoPos && geoState === "on" && geoPos.acc < 500) ? geoPos : site && isFinite(site.lat) ? site : (() => { try { const p = buildPlan(day()); const s = p && gxStopsOf(p)[0]; return s ? s.place : null; } catch (e) { return null; } })();
+  const here = (geoPos && geoState === "on" && geoPos.acc < 500) ? geoPos : site && KEngine.fin(site.lat) ? site : (() => { try { const p = buildPlan(day()); const s = p && gxStopsOf(p)[0]; return s ? s.place : null; } catch (e) { return null; } })();
   if (!here) return "";
   const key = "amen:" + gxR3(here.lat) + "," + gxR3(here.lng);
   let v = gxCache[key] && gxCache[key].v;
@@ -16286,7 +16286,7 @@ function gxThemeLink(s, city) {
 // Film and TV: real filming locations from Wikidata, near each stop.
 function gxFilm(p) { return gxGet("film:" + gxR3(p.lat) + "," + gxR3(p.lng), `/x/film?lat=${gxR3(p.lat)}&lng=${gxR3(p.lng)}`); }
 function gxFilmAt(s) {
-  if (!freeAI || !isFinite(s.lat)) return [];
+  if (!freeAI || !KEngine.fin(s.lat)) return [];
   const v = gxFilm(s); if (!v || !v.places) return [];
   return v.places.filter(f => hav(f, s) <= 0.25 || keyOf(f.name).includes(keyOf(s.name)) || keyOf(s.name).includes(keyOf(f.name))).flatMap(f => f.works).slice(0, 4);
 }
@@ -16547,7 +16547,7 @@ async function grpCall(body, query) {
 // phone plans with the same rides as the owner's, so the same sights fit in the same order from the first minute (outside
 // test, Nov 22: a member's order differed until their own phone had asked for the rides).
 function grpRides() {
-  const pts = []; trip.days.forEach(d => { const c = cityFor(d), s = c && (c.sites || []).find(x => isFinite(x.lat)); if (s) pts.push(s); });
+  const pts = []; trip.days.forEach(d => { const c = cityFor(d), s = c && (c.sites || []).find(x => KEngine.fin(x.lat)); if (s) pts.push(s); });
   const out = {}; if (typeof transitMem !== "object" || !pts.length) return out;
   for (const k in transitMem) { const n = k.split("|")[0].split(",").map(Number), m = transitMem[k]; if (n.length < 4 || !m || !(m.opts || []).length || m.partial) continue;
     if (!pts.some(p => hav(p, { lat: n[0], lng: n[1] }) <= 80)) continue;
@@ -17019,7 +17019,7 @@ const overlap = (a, b, c, d) => Math.max(0, Math.min(b, d) - Math.max(a, c));
 // ---------- 2. Weather (Open-Meteo, free and keyless, through the worker so a city is fetched once for everyone) ----------
 let wxCache = {}, wxAsked = {};
 const WX_DAYS = 16;
-function wxKey(city) { const p = city && ((city.sites || [])[0] || {}); return isFinite(p.lat) ? (+p.lat).toFixed(1) + "," + (+p.lng).toFixed(1) : null; }
+function wxKey(city) { const p = city && ((city.sites || [])[0] || {}); return KEngine.fin(p.lat) ? (+p.lat).toFixed(1) + "," + (+p.lng).toFixed(1) : null; }
 function daysAhead(iso) { const t = todayISO(); return Math.round((new Date(iso + "T12:00:00Z") - new Date(t + "T12:00:00Z")) / 864e5); }
 function wxFetch(city) {
   const k = wxKey(city); if (!k || wxAsked[k]) return;
@@ -17299,7 +17299,7 @@ function legTo(from, to) {
   if (r) { const m = foot ? r.min : r.min + 10; return m >= est.min ? (foot ? { min: m, how: "Walk", src: "street route" } : { min: m, how: "Taxi", src: "street route + 10 min to find a taxi" }) : { min: est.min, how: est.how, transit: est.transit, src: "the day plan's time (more cautious than the street route)" }; }
   if (freeAI && !legAsked[k]) { legAsked[k] = 1;
     fetch(freeAI.url + "/route", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ legs: [{ m: foot ? "foot" : "car", a: [+from.lng, +from.lat], b: [+to.lng, +to.lat] }] }) })
-      .then(x => x.ok ? x.json() : null).then(j => { const rt = j && j.routes && j.routes[0]; if (rt && isFinite(rt.min)) { realLegs[k] = rt; alarmTick(); } }).catch(() => {}); }
+      .then(x => x.ok ? x.json() : null).then(j => { const rt = j && j.routes && j.routes[0]; if (rt && KEngine.fin(rt.min)) { realLegs[k] = rt; alarmTick(); } }).catch(() => {}); }
   return { min: est.min, how: est.how, transit: est.transit, src: "estimate" };
 }
 let alarmFired = {}, liveArrived = {};
@@ -17330,7 +17330,7 @@ function alarmState(d, plan, opt) {
     // No stop at all (straight from the airport to the ship): from the start (or the top of a cable car ridden up), on the
     // plan's own ride with its extra time (Nov 21, Bahamas test trip: "leave by 1:43" from a 47-min estimate while the plan's ride was 1 h with the extra).
     // From the bags left in storage (no stop after them): the place is named, never the step ("From Leave your bags in ...").
-    if (j >= 0 && its[j].place && isFinite(its[j].place.lat)) { from = its[j].type === "fixed" && its[j].head && /bags/i.test(its[j].place.name || "") ? Object.assign({}, its[j].place, { name: "the luggage storage" }) : its[j].place; let m = 0, how = "";
+    if (j >= 0 && its[j].place && KEngine.fin(its[j].place.lat)) { from = its[j].type === "fixed" && its[j].head && /bags/i.test(its[j].place.name || "") ? Object.assign({}, its[j].place, { name: "the luggage storage" }) : its[j].place; let m = 0, how = "";
       for (let k = j + 1; k < its.length; k++) { const it = its[k]; if (it.type === "travel") { m += it.leg.min || 0; how = how || it.leg.how || ""; }
         else if (it.type === "fixed" && !/bags/i.test((it.place && it.place.name) || "")) m += (it.place && it.place.minutes) || 0; else if (it.type === "fixed" || it.type === "end") break; }
       const lt = legTo(from, target); leg = /street route/.test(lt.src || "") && lt.min > m ? lt : { min: m, how: how || lt.how, transit: lt.transit, src: "the day plan's own ride back" }; } }
@@ -17365,9 +17365,9 @@ function rideBack(d, plan, st) {
   let ri = -1; for (let k = end - 1; k > 0; k--) { const it = plan.items[k]; if (it.type === "travel" && it.leg.transit && (it.leg.transit.deps || []).length) { ri = k; break; } if (it.type === "travel" && it.leg.mode !== "walk" && it.leg.min > 25) break; }
   if (ri < 1) return null;
   const ti = plan.items[ri], o = ti.leg.transit, at = plan.items[ri - 1], origin = at && at.place, land = plan.items[ri + 1] && plan.items[ri + 1].place;
-  if (!origin || !isFinite(origin.lat)) return null;
+  if (!origin || !KEngine.fin(origin.lat)) return null;
   // After the ride: the walk from where it arrives to the ship (a meal there can be skipped in a pinch).
-  const after = land && isFinite(land.lat) && hav(land, st.point) > 0.05 ? legTo(land, st.point).min : 0;
+  const after = land && KEngine.fin(land.lat) && hav(land, st.point) > 0.05 ? legTo(land, st.point).min : 0;
   const here = st.from, toPoint = hav(here, st.point), toOrigin = hav(here, origin), span = hav(origin, st.point);
   if (toPoint < 2 || toOrigin > toPoint) return null; // already near the ship, or closer to it than to the ride
   const slack = ti.leg.slack || 0, safe = safeDeps(o, st.backBy - after, slack);
@@ -17570,7 +17570,7 @@ async function camLookup(file) {
   const pos = await camPosition(), plan = buildPlan(d), todays = plan && !plan.error ? plan.stops.map(i => i.place) : [];
   let cands = [];
   if (pos) {
-    cands = allSites(city).filter(s => isFinite(s.lat)).map(s => ({ name: s.name, kind: s.category || "", m: Math.round(hav(pos, s) * 1000), site: s })).filter(c => c.m <= 700).sort((a, b) => a.m - b.m).slice(0, 12);
+    cands = allSites(city).filter(s => KEngine.fin(s.lat)).map(s => ({ name: s.name, kind: s.category || "", m: Math.round(hav(pos, s) * 1000), site: s })).filter(c => c.m <= 700).sort((a, b) => a.m - b.m).slice(0, 12);
     cam.msg = "Looking at what's around you…"; camSheet();
     if (freeAI) try { const r = await fetch(`${freeAI.url}/nearsights?lat=${pos.lat.toFixed(4)}&lng=${pos.lng.toFixed(4)}&r=300`); const j = r.ok ? await r.json() : null;
       ((j && j.sights) || []).forEach(x => { if (cands.length >= 20 || cands.some(c => nameMatch(c.name, x.name) || nameMatch(x.name, c.name))) return; const m = Math.round(hav(pos, x) * 1000); if (m <= 400) cands.push({ name: x.name, kind: String(x.kind || "").replace(/_/g, " "), m, osm: x }); }); } catch (e) {}
@@ -17948,7 +17948,7 @@ function youCompassStart(fromTap) {
     const ev = "ondeviceorientationabsolute" in window ? "deviceorientationabsolute" : "deviceorientation";
     youCompass = { ev, fn: e => {
       let h = null;
-      if (typeof e.webkitCompassHeading === "number" && isFinite(e.webkitCompassHeading)) h = e.webkitCompassHeading; // iPhone, iPad
+      if (typeof e.webkitCompassHeading === "number" && KEngine.fin(e.webkitCompassHeading)) h = e.webkitCompassHeading; // iPhone, iPad
       else if ((e.absolute || ev === "deviceorientationabsolute") && e.alpha != null) h = 360 - e.alpha; // Android
       if (h == null) return;
       const turn = (screen.orientation && screen.orientation.angle) || window.orientation || 0;
@@ -18074,7 +18074,7 @@ function dayMeals(d, city) {
     const o = Object.assign({}, m);
     if (p.at && /^\d\d:\d\d$/.test(p.at)) { const t = toMin(p.at); o.from = t; o.to = t + 10; o.at = p.at; }
     const k = p.pick;
-    if (k && k.name && isFinite(k.lat) && isFinite(k.lng)) {
+    if (k && k.name && KEngine.fin(k.lat) && KEngine.fin(k.lng)) {
       // The guide's own entry when it still has it (its rating, hours and cuisine stay current), else the saved one.
       const live = city && (city.restaurants || []).find(r => !r.generic && keyOf(r.name) === keyOf(k.name) && hav(r, k) < 0.2);
       o.pick = Object.assign({}, live || { name: k.name, lat: k.lat, lng: k.lng, cuisine: k.cuisine || "", kind: k.kind || "local", price: k.price || "", why: "" }, { mine: true });
@@ -18089,8 +18089,8 @@ function mealChoices(d, plan, label) {
   const item = plan.items.find(x => (x.type === "meal" || x.type === "evening") && x.meal && x.meal.label === label && x.place);
   const cur = item ? item.place : null;
   // Near today's sights (named by the sight), or on a day without one, near where the day starts or ends.
-  const sights = plan.items.filter(x => x.type === "stop" && x.place && isFinite(x.place.lat)).map(x => x.place);
-  const stops = sights.length ? sights : plan.items.filter(x => (x.type === "start" || x.type === "end" || x.type === "fixed") && x.place && isFinite(x.place.lat)).map(x => x.place);
+  const sights = plan.items.filter(x => x.type === "stop" && x.place && KEngine.fin(x.place.lat)).map(x => x.place);
+  const stops = sights.length ? sights : plan.items.filter(x => (x.type === "start" || x.type === "end" || x.type === "fixed") && x.place && KEngine.fin(x.place.lat)).map(x => x.place);
   // Never a place another day of the trip already eats at, so no place is planned twice.
   const taken = new Set();
   trip.days.forEach(o => { if (o === d || cityFor(o) !== city) return; let p = null; try { p = buildPlan(o); } catch (e) {} if (!p || p.error) return;
@@ -18098,9 +18098,9 @@ function mealChoices(d, plan, label) {
   (plan.items || []).forEach(x => { if ((x.type === "meal" || x.type === "evening") && x.place && x !== item && !x.place.generic) taken.add(keyOf(x.place.name)); });
   const radius = item && item.type === "evening" ? 0.8 : 0.6;
   const near = r => { let b = Infinity, at = null; for (const s of stops) { const k = hav(s, r); if (k < b) { b = k; at = s; } } return { km: b, at }; };
-  const fromLunch = r => cur && !cur.generic && isFinite(cur.lat) ? hav(cur, r) : Infinity; // close to where the meal is now also counts
+  const fromLunch = r => cur && !cur.generic && KEngine.fin(cur.lat) ? hav(cur, r) : Infinity; // close to where the meal is now also counts
   const alts = new Set(((cur && cur.alts) || []).map(a => keyOf(a.name)));
-  const out = (city.restaurants || []).filter(r => !r.generic && !r.crowdDrop && isFinite(r.lat) && !(cur && keyOf(r.name) === keyOf(cur.name)) && !taken.has(keyOf(r.name)) && !mealShut(r, label, d.date))
+  const out = (city.restaurants || []).filter(r => !r.generic && !r.crowdDrop && KEngine.fin(r.lat) && !(cur && keyOf(r.name) === keyOf(cur.name)) && !taken.has(keyOf(r.name)) && !mealShut(r, label, d.date))
     .map(r => Object.assign({ r, alt: alts.has(keyOf(r.name)) }, near(r))).filter(x => x.at && Math.min(x.km, fromLunch(x.r)) <= radius);
   const good = x => (x.alt ? 10 : 0) + (x.r.crowdTop ? 3 : 0) + (x.r.top ? 2 : 0) + (x.r.recommended ? 2 : 0) + (gGood(gOf(x.r)) ? 2 : 0) - x.km * 6;
   return out.sort((a, b) => good(b) - good(a)).slice(0, 6);
@@ -18481,7 +18481,7 @@ async function guideNoAI(d, quiet) {
 }
 async function sourceGuide(d) {
   const label = d.destination, src = await sourcesFor(label);
-  if (!src || !Array.isArray(src.stops) || !src.center || !isFinite(src.center.lat)) return null;
+  if (!src || !Array.isArray(src.stops) || !src.center || !KEngine.fin(src.center.lat)) return null;
   const area = bareName(src.area || label) || bareName(label), port = bareName(label);
   const title = keyOf(area) && keyOf(port) && !keyOf(port).includes(keyOf(area)) && !keyOf(area).includes(keyOf(port)) ? area + " (from " + port + ")" : area;
   const tmp = { city: title, country: "", sites: [], farther: [], starts: {}, restaurants: [] };
@@ -18520,14 +18520,14 @@ async function srcStarts(label, area, port, centre, d) {
   const ask = { airport: [A + " airport", A + " international airport"], station: [A + " railway station", A + " central station"], cruise: ["Port of " + Pn, Pn + " cruise terminal", "Cruise pier"] };
   const names = [...ask.airport, ...ask.station, ...ask.cruise];
   let res = null;
-  try { const r = await fetch(freeAI.url + "/ground", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ city: label, names: names.slice(0, 8), center: centre && isFinite(centre.lat) ? { lat: centre.lat, lng: centre.lng } : undefined }) }); if (r.ok) { const j = await r.json(); if (Array.isArray(j.results)) res = j.results; } } catch (e) {}
+  try { const r = await fetch(freeAI.url + "/ground", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ city: label, names: names.slice(0, 8), center: centre && KEngine.fin(centre.lat) ? { lat: centre.lat, lng: centre.lng } : undefined }) }); if (r.ok) { const j = await r.json(); if (Array.isArray(j.results)) res = j.results; } } catch (e) {}
   // R: the answers, one per name in N; C: where the search was centred (the city, or the port itself on a second look).
   const found = (k, R = res, N = names, C = centre) => {
     // A port named apart from its city can be a long way out (a port 180 km from the capital it serves).
     const K = SG_KIND[k], lim = k === "cruise" && gate ? 300 : K.km, cands = [];
     N.forEach((n, i) => { if (!ask[k].includes(n)) return; const x = (R && R[i]) || {};
       (x.wiki || []).forEach(w => { if (w.lat != null && K.re.test(w.title || "")) cands.push({ name: w.title, lat: +w.lat, lng: +w.lng, any: n === "Cruise pier", wiki: true, about: String(w.extract || "") }); });
-      (x.map || []).forEach(m => { if (isFinite(m.lat) && (K.re.test(m.name || "") || K.map.test(m.kind || ""))) cands.push({ name: m.name || n, lat: +m.lat, lng: +m.lng, kind: m.kind || "", any: n === "Cruise pier", fit: (K.map.test(m.kind || "") ? 2 : 0) + (k === "cruise" && /cruise|terminal|wharf|pier/i.test(m.name || "") ? 2 : 0) }); }); });
+      (x.map || []).forEach(m => { if (KEngine.fin(m.lat) && (K.re.test(m.name || "") || K.map.test(m.kind || ""))) cands.push({ name: m.name || n, lat: +m.lat, lng: +m.lng, kind: m.kind || "", any: n === "Cruise pier", fit: (K.map.test(m.kind || "") ? 2 : 0) + (k === "cruise" && /cruise|terminal|wharf|pier/i.test(m.name || "") ? 2 : 0) }); }); });
     // The plain "Cruise pier" search (asked last) only counts a place that names itself a cruise pier: a private island
     // or small port whose pier has no "Port of ..." name (Nov 18: CocoCay's pier is mapped as "Royal Caribbean Cruise
     // Pier"), never a nearby fishing or ferry pier.
@@ -18572,7 +18572,7 @@ async function srcStarts(label, area, port, centre, d) {
   // from its own encyclopedia article (Round 2 re-check: a port 120 km from the city it serves was searched for only
   // around the city, and nothing was found).
   if (gate && freeAI && starts.cruise.length === 1 && starts.cruise[0].unknown && Array.isArray(res)) {
-    const at = res.flatMap(x => (x && x.wiki) || []).find(w => w && w.lat != null && isFinite(w.lat) && isFinite(w.lng) && nameMatch(Pn, w.title || ""));
+    const at = res.flatMap(x => (x && x.wiki) || []).find(w => w && w.lat != null && KEngine.fin(w.lat) && KEngine.fin(w.lng) && nameMatch(Pn, w.title || ""));
     if (at) try { const r = await fetch(freeAI.url + "/ground", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ city: Pn, names: ask.cruise, center: { lat: +at.lat, lng: +at.lng } }) });
       if (r.ok) { const j = await r.json(); if (Array.isArray(j.results)) { const p = found("cruise", j.results, ask.cruise, { lat: +at.lat, lng: +at.lng });
         if (p) starts.cruise = (Array.isArray(p) ? p : [p]).map(x => ({ name: x.name, lat: x.lat, lng: x.lng, note: "" })); } } } catch (e) {}
@@ -18588,7 +18588,7 @@ async function findHotelNoAI(name, d) {
   try {
     const r = await fetch(freeAI.url + "/findplace?city=" + encodeURIComponent(bareName(d.destination)) + "&q=" + encodeURIComponent(name)); if (!r.ok) return null;
     const j = await r.json(), list = (j && j.places) || [];
-    const hit = list.find(p => isFinite(p.lat) && (nameMatch(name, p.name) || (p.names || []).some(n => nameMatch(name, n)))) || list.find(p => isFinite(p.lat) && /hotel|guest|hostel|apartment|motel|tourism/.test((p.kind || "") + " " + (p.cat || "")));
+    const hit = list.find(p => KEngine.fin(p.lat) && (nameMatch(name, p.name) || (p.names || []).some(n => nameMatch(name, n)))) || list.find(p => KEngine.fin(p.lat) && /hotel|guest|hostel|apartment|motel|tourism/.test((p.kind || "") + " " + (p.cat || "")));
     return hit ? { name: hit.name || name, lat: +hit.lat, lng: +hit.lng, addr: hit.addr || "" } : null;
   } catch (e) { return null; }
 }
@@ -18606,7 +18606,7 @@ async function farNoAI(city, src, quiet) {
   if ((city.farther || []).some(x => !x.noAI)) return;
   const centre = srcCentre(city, src); if (!centre) return;
   const all = allSites(city), have = y => all.some(s => sameSight(y, s) || (s.merged || []).some(m => sameSight(y, m)));
-  const cands = src.next.filter(y => y && y.name && isFinite(y.lat) && y.km >= 8 && y.km <= 120 && !have(y) && keyOf(y.name) !== keyOf(city.city)).slice(0, 8);
+  const cands = src.next.filter(y => y && y.name && KEngine.fin(y.lat) && y.km >= 8 && y.km <= 120 && !have(y) && keyOf(y.name) !== keyOf(city.city)).slice(0, 8);
   if (!cands.length) { city.farNoAIV = FARNOAI_V; return; }
   farNoAIBusy[k] = true;
   try {
@@ -18615,7 +18615,7 @@ async function farNoAI(city, src, quiet) {
     let added = 0; city.farther = city.farther || [];
     cands.forEach((y, i) => {
       if (added >= 4) return;
-      const opts = ((res[i] && res[i].opts) || []).filter(o => o && isFinite(o.min) && o.min > 0 && o.min <= 120 && (!o.every || o.every <= 120) && o.kind);
+      const opts = ((res[i] && res[i].opts) || []).filter(o => o && KEngine.fin(o.min) && o.min > 0 && o.min <= 120 && (!o.every || o.every <= 120) && o.kind);
       if (!opts.length) return;
       const o = opts.sort((a, b) => a.min - b.min)[0], mins = Math.round(o.min / 5) * 5 || o.min;
       const travel = `${o.kind} from ${o.from || city.city}, about ${mins} min one way`;
@@ -19211,7 +19211,7 @@ function printDay(d, i) {
       const s = it.place, bk = printBook(s);
       const tag = s.along ? "On the way: " : s.bonus ? "Optional: " : "";
       const mark = s.along || s.bonus ? "+" : String(++k);
-      const sub = [s.along ? "" : dur(s.minutes), s.mustSee ? "Must-see" : "", it.wait && it.opens != null ? `opens ${isFinite(it.opens) ? fmt(it.opens) : esc(it.opens)}` : ""].filter(Boolean).join(" · ");
+      const sub = [s.along ? "" : dur(s.minutes), s.mustSee ? "Must-see" : "", it.wait && it.opens != null ? `opens ${KEngine.fin(it.opens) ? fmt(it.opens) : esc(it.opens)}` : ""].filter(Boolean).join(" · ");
       return row(s.bonus || s.along ? "pstop popt" : "pstop", mark, `${it.area ? `<div class="psub"><b>${esc(areaHead(it))}</b></div>` : ""}<b>${esc(tag + (s.areaRest ? "The rest of " + s.name : s.name))}</b>${sub ? `<div class="psub">${sub}</div>` : ""}${bk ? `<div class="pbook">Book ahead: ${esc(bk)}${(u => u ? ` Official tickets: ${esc(u)}` : "")(tixPrint(s, d))}${tixDone(d, s) ? " (booked)" : ""}</div>` : ""}`);
     }
     return "";
@@ -19392,7 +19392,7 @@ function lockTimes(d, city, w) {
 function lockSeqOut(seq) {
   return seq.map(x => {
     if (x.mealOf) { const n = Object.assign({}, x); delete n.mealOf; delete n.alts; return { meal: x.mealOf.label, q: x.mealOf.quick ? 1 : 0, bk: x.mealOf.booked ? 1 : 0, node: n }; }
-    return Object.assign({ id: x.id, n: x.name, la: isFinite(x.lat) ? +(+x.lat).toFixed(5) : undefined, lo: isFinite(x.lng) ? +(+x.lng).toFixed(5) : undefined, min: x.minutes || 0, sf: x.shortFrom || 0, b: x.bonus ? 1 : 0, a: x.along ? 1 : 0 }, x.foldOf ? { inc: x.foldOf.map(y => y.id), incn: x.foldOf.map(y => y.name), incp: x.foldOf.map(y => isFinite(y.lat) ? [+(+y.lat).toFixed(5), +(+y.lng).toFixed(5)] : null) } : {});
+    return Object.assign({ id: x.id, n: x.name, la: KEngine.fin(x.lat) ? +(+x.lat).toFixed(5) : undefined, lo: KEngine.fin(x.lng) ? +(+x.lng).toFixed(5) : undefined, min: x.minutes || 0, sf: x.shortFrom || 0, b: x.bonus ? 1 : 0, a: x.along ? 1 : 0 }, x.foldOf ? { inc: x.foldOf.map(y => y.id), incn: x.foldOf.map(y => y.name), incp: x.foldOf.map(y => KEngine.fin(y.lat) ? [+(+y.lat).toFixed(5), +(+y.lng).toFixed(5)] : null) } : {});
   });
 }
 // What changed in the day's times, in a few plain words.
@@ -19575,7 +19575,7 @@ function dragMove(e) { const st = dragSt; if (!st) return; e.preventDefault(); s
 // busy phone the finger is often lifted before that paint, and the stop landed where it was a moment earlier, or nowhere).
 function dragEnd(cancel, e) {
   const st = dragSt; if (!st) return;
-  if (!cancel) { if (e && isFinite(e.clientY)) st.y = e.clientY; dragTarget(); }
+  if (!cancel) { if (e && KEngine.fin(e.clientY)) st.y = e.clientY; dragTarget(); }
   dragSt = null;
   if (st.raf) cancelAnimationFrame(st.raf);
   st.row.classList.remove("dragging"); st.row.style.transform = ""; document.body.classList.remove("dragging-on");
@@ -19801,7 +19801,7 @@ function recheckSaved(city) {
   if (!city || typeof city !== "object") return city;
   const aiCity = !!(city.ai && !city.builtin);
   if (aiCity && !city.grounded) return null;
-  for (const k of ["sites", "farther"]) if (Array.isArray(city[k])) city[k] = city[k].filter(s => s && s.name && isFinite(+s.lat) && isFinite(+s.lng)).map(s => recheckSight(s, city));
+  for (const k of ["sites", "farther"]) if (Array.isArray(city[k])) city[k] = city[k].filter(s => s && s.name && KEngine.fin(s.lat) && KEngine.fin(s.lng)).map(s => recheckSight(s, city));
   if (aiCity) {
     // Places to eat: only places on the map; the AI's ranking, style and price band are not a source.
     if (Array.isArray(city.restaurants)) city.restaurants = city.restaurants.filter(r => r && r.onMap).map(r => Object.assign(r, { top: false, style: "", price: "" }));
@@ -20404,9 +20404,9 @@ const SRC_FAME_LEN = { Landmark: [[40, 20]], Museum: [[120, 180], [80, 150], [50
 const srcMinutes = (cat, base, sl) => { const b = (SRC_FAME_LEN[cat] || []).find(([at]) => (sl || 0) >= at); return b ? Math.max(base, b[1]) : base; };
 // The guide's own centre: the middle of its written sights (a gateway port's guide is about the city it serves).
 function srcCentre(city, src) {
-  const pts = (city.sites || []).filter(x => !x.srcOnly && !x.quick && isFinite(x.lat));
+  const pts = (city.sites || []).filter(x => !x.srcOnly && !x.quick && KEngine.fin(x.lat));
   if (pts.length >= 3) { const la = pts.map(x => x.lat).sort((a, b) => a - b), ln = pts.map(x => x.lng).sort((a, b) => a - b); return { lat: la[pts.length >> 1], lng: ln[pts.length >> 1] }; }
-  return src && src.center && isFinite(src.center.lat) ? src.center : pts[0] || null;
+  return src && src.center && KEngine.fin(src.center.lat) ? src.center : pts[0] || null;
 }
 // One or two plain sentences from the travel guide that lists the place (English first, then the local one).
 function srcSummary(x, cat, area) {
@@ -20445,7 +20445,7 @@ const srcBare = (x, area) => { const a = keyOf(area); if (!a) return x; const n 
 // A place inside a bigger stop's grounds (the Erechtheion on the Acropolis, a fountain on its square) is one of that
 // stop's parts, never a stop of its own: the same reach the big-stop parts use (see partCands).
 function srcReach(s) {
-  if (!s || !isFinite(s.lat) || s.far || s.quick) return 0;
+  if (!s || !KEngine.fin(s.lat) || s.far || s.quick) return 0;
   const t = (s.category || "") + " " + s.name;
   return /castle|palace|citadel|fortress|kremlin|acropolis|archaeolog|ancient|forum|agora|monaster|abbey|park|garden|campus|cemetery|island|hill|complex/i.test(t) ? 0.45 : /square|plaza|piazza|platz|market/i.test(t) ? 0.2 : /old town|historic|quarter|district|village/i.test(t) ? 0.35 : AREA_CAT.test(t) ? 0.2 : 0;
 }
@@ -20457,7 +20457,7 @@ const srcPartOf = (x, s, src) => {
   if (srcFamed(x)) return false;
   // Nor is a museum travelers list on its own and many languages write about (the museum below a citadel, not in it).
   if ((x.sl || 0) >= 30 && (x.src || []).some(t => /Wikivoyage/.test(t)) && srcKind(x.name, x.local)[1] === "Museum") return false;
-  const r = srcReach(s); if (!r || x.lat == null || !isFinite(s.lat) || hav(x, s) > r || (x.sl || 0) >= srcFame(s, src)) return false;
+  const r = srcReach(s); if (!r || x.lat == null || !KEngine.fin(s.lat) || hav(x, s) > r || (x.sl || 0) >= srcFame(s, src)) return false;
   // A museum, church or palace across from a park or on a square is its own visit; inside a castle's or an
   // ancient site's grounds it is part of that visit.
   return !/^(Museum|Church|Mosque|Synagogue|Temple|Shrine|Palace|Castle or fort|Catacombs)$/.test(srcKind(x.name, x.local)[1]) || SRC_GROUNDS.test((s.category || "") + " " + s.name);
@@ -20508,7 +20508,7 @@ function srcShowName(n, area) {
 }
 if (typeof window !== "undefined") window.__kairouteShowName = (n, a) => srcShowName(n, a);
 function srcWholeOf(s, src, all, depth) {
-  const stops = (src && src.stops) || [], x = s.wd && stops.find(y => y.wd === s.wd); if (!x || !isFinite(s.lat)) return null;
+  const stops = (src && src.stops) || [], x = s.wd && stops.find(y => y.wd === s.wd); if (!x || !KEngine.fin(s.lat)) return null;
   for (const id of Array.isArray(x.partOf) ? x.partOf : []) {
     const W = stops.find(y => y.wd === id); if (!W || W.lat == null || hav(W, s) > 1 || !srcKnown(W) || srcNotPlace(W)) continue;
     // A tower beside a church or palace (St Mark's Campanile, Big Ben) is climbed or seen on its own.
@@ -20521,7 +20521,7 @@ function srcWholeOf(s, src, all, depth) {
   // whose own whole isn't on the list, standing within 300 m of a museum that is: seen inside that museum (R-16, Paris
   // live check Nov 24: the Venus de Milo was offered as a stop of its own next to the Louvre).
   if (srcHas2(x, /^creative-work$/) && !srcHas2(x, /^(building|structure|monument|fountain|bridge|tower|park|garden|square|archaeological|church|chapel)$/)) {
-    const m = all.filter(o => o !== s && isFinite(o.lat) && hav(o, s) <= 0.3 && (o.wd ? srcIsMuseum(stops.find(y => y.wd === o.wd) || o) : srcIsMuseum(o))).sort((a, b) => hav(a, s) - hav(b, s))[0];
+    const m = all.filter(o => o !== s && KEngine.fin(o.lat) && hav(o, s) <= 0.3 && (o.wd ? srcIsMuseum(stops.find(y => y.wd === o.wd) || o) : srcIsMuseum(o))).sort((a, b) => hav(a, s) - hav(b, s))[0];
     if (m) return m; }
   // Named inside a museum's own description, within a kilometre: that museum, when it is on the list.
   for (const W of stops) {
@@ -20530,7 +20530,7 @@ function srcWholeOf(s, src, all, depth) {
   }
   // A guide's own museum with such a description (its built-in card's summary).
   for (const o of all) {
-    if (o === s || o.wd === x.wd || !isFinite(o.lat) || hav(o, s) > 1 || !srcIsMuseum(o) || !srcNamedInside(x, o)) continue;
+    if (o === s || o.wd === x.wd || !KEngine.fin(o.lat) || hav(o, s) > 1 || !srcIsMuseum(o) || !srcNamedInside(x, o)) continue;
     return o;
   }
   return null;
@@ -20552,8 +20552,8 @@ function sourceSights(city, src) {
   for (const s of allSites(city)) if (s.srcOnly && !s.enN) { const en = enSight({ name: s.name, local: s.local, sl: s.fame }, s.category); if (en) Object.assign(s, en); s.enN = 1; }
   // A sight a saved guide got from the sources takes the sources' checked point now (the helper cross-checks the travel
   // guide, the encyclopedia and the map: Nov 22, a synagogue had been 2 km out of the old town it stands in).
-  for (const s of allSites(city)) if (s.srcOnly && s.wd) { const x = src.stops.find(y => y.wd === s.wd); if (!x || x.lat == null || !isFinite(x.lat)) continue;
-    if (!isFinite(s.lat) || hav(s, x) > 0.05) { s.lat = x.lat; s.lng = x.lng; } if (x.posDoubt) s.posDoubt = true; else delete s.posDoubt;
+  for (const s of allSites(city)) if (s.srcOnly && s.wd) { const x = src.stops.find(y => y.wd === s.wd); if (!x || x.lat == null || !KEngine.fin(x.lat)) continue;
+    if (!KEngine.fin(s.lat) || hav(s, x) > 0.05) { s.lat = x.lat; s.lng = x.lng; } if (x.posDoubt) s.posDoubt = true; else delete s.posDoubt;
     // Its kind and visit length from the facts, where the saved one is still the old name-word guess (never a length
     // the traveler or a big stop's parts changed).
     if (srcKnown(x) && !s.parts && s.baseMin == null) { const [, oc, om] = srcKind(s.srcName || s.name, s.local), [, cat, m0] = srcKindOf(x), m = srcMinutes(cat, m0, x.sl);
@@ -20580,7 +20580,7 @@ function sourceSights(city, src) {
   { const mine = new Set(((typeof trip !== "undefined" && trip && trip.days) || []).flatMap(d => (d.mine || []).map(String)));
     const twin = s => { const m = /^wv~(Q\d+)$/.exec(String(s.id)); if (!m || !s.fromGuide || mine.has(String(s.id))) return false;
       const x = src.stops.find(y => y.wd === m[1]), en = keyOf((x && x.name) || "");
-      return allSites(city).some(t => t !== s && !/^wv~/.test(String(t.id)) && (!isFinite(t.lat) || !isFinite(s.lat) || hav(t, s) <= 2) &&
+      return allSites(city).some(t => t !== s && !/^wv~/.test(String(t.id)) && (!KEngine.fin(t.lat) || !KEngine.fin(s.lat) || hav(t, s) <= 2) &&
         (t.wd === m[1] || (en && en.split(" ").length >= 2 && (keyOf(t.name) === en || keyOf(t.srcName || "") === en)))); };
     for (const k of ["sites", "farther"]) if (Array.isArray(city[k])) city[k] = city[k].filter(s => !twin(s)); }
   // Day trips (rule R-15 and R-16, Nov 24, Kusadasi): one the facts show is no place to go (an inscription kept in a
@@ -20591,7 +20591,7 @@ function sourceSights(city, src) {
     if (Array.isArray(city.farther)) {
       city.farther = city.farther.filter(s => { if (mine.has(String(s.id)) || s.town) return true; const x = facts(s); return !(x && farNotPlace(x)); });
       const rank = s => (mine.has(String(s.id)) ? 1e6 : 0) + (s.mustSee ? 1e4 : 0) + (s.unesco ? 1e3 : 0) + (s.fame || 0) + (/town|village|city/i.test(s.category || "") ? -50 : 0);
-      const outing = [...city.farther].filter(s => !s.town && isFinite(s.lat) && isFinite(s.lng)).sort((a, b) => rank(b) - rank(a)), gone = new Set();
+      const outing = [...city.farther].filter(s => !s.town && KEngine.fin(s.lat) && KEngine.fin(s.lng)).sort((a, b) => rank(b) - rank(a)), gone = new Set();
       outing.forEach((s, i) => { if (gone.has(s)) return; for (const t of outing.slice(i + 1)) if (!gone.has(t) && !mine.has(String(t.id)) && hav(s, t) <= 3) { gone.add(t); s.alsoNames = (s.alsoNames || []).concat(t.name); } });
       if (gone.size) city.farther = city.farther.filter(s => !gone.has(s)); } }
   // A sight a saved guide got from the sources that the facts now show is no place to visit (an organisation, an event, a
@@ -20689,9 +20689,9 @@ const twinSaint = n => ((/\b(?:st\.?|saint|san|santa|sant'?|santo|são|sankt)\s+
 // The famous place a look-alike name could be mistaken for: a "St Paul Outside the Walls" next to the city's best
 // known basilica, or two churches of the same saint.
 function twinOf(s, city) {
-  const w = (TWIN_WORD.exec(s.name) || [])[1]; if (!w || !isFinite(s.lat)) return null;
+  const w = (TWIN_WORD.exec(s.name) || [])[1]; if (!w || !KEngine.fin(s.lat)) return null;
   const lw = w.toLowerCase(), rel = TWIN_REL.test(s.name), sn = twinSaint(s.name);
-  const c = allSites(city).filter(x => x !== s && isFinite(x.lat) && hav(x, s) > 0.3 && x.name.toLowerCase().includes(lw) && ((rel && !TWIN_REL.test(x.name) && (x.mustSee || (x.fame || 0) >= 60)) || (sn && twinSaint(x.name) === sn)));
+  const c = allSites(city).filter(x => x !== s && KEngine.fin(x.lat) && hav(x, s) > 0.3 && x.name.toLowerCase().includes(lw) && ((rel && !TWIN_REL.test(x.name) && (x.mustSee || (x.fame || 0) >= 60)) || (sn && twinSaint(x.name) === sn)));
   return c.sort((a, b) => (b.mustSee ? 1 : 0) - (a.mustSee ? 1 : 0) || (b.fame || 0) - (a.fame || 0))[0] || null;
 }
 function twinNote(s, city) {
@@ -20984,7 +20984,7 @@ function scriptOwners(city) {
   const by = new Map(); for (const s of sites) { const sc = scriptFor(s, city); if (sc) { if (!by.has(sc)) by.set(sc, []); by.get(sc).push(s); } }
   const owner = new Map(), walk = new Map();
   for (const [sc, cands] of by) { const o = scriptOwner(sc, cands); if (!o) continue; owner.set(sc.id, o);
-    for (const s of sites) if (s !== o && isFinite(+s.lat) && isFinite(+o.lat) && hav(s, o) <= SCRIPT_WALK_KM && scriptPartFor(sc, s) >= 0) { if (!walk.has(s)) walk.set(s, []); walk.get(s).push(o.id); } }
+    for (const s of sites) if (s !== o && KEngine.fin(s.lat) && KEngine.fin(o.lat) && hav(s, o) <= SCRIPT_WALK_KM && scriptPartFor(sc, s) >= 0) { if (!walk.has(s)) walk.set(s, []); walk.get(s).push(o.id); } }
   const out = { sig, owner, walk }; scriptOwnMemo.set(city, out); return out;
 }
 // Puts the script on the stop as its parts (the same parts the voice tour and the day plan already show). The AI
@@ -21568,7 +21568,7 @@ function zoneFmt(tz) { let f = zoneFmts.get(tz); if (f === undefined) { try { f 
 function zoneOk(tz) { return !!zoneFmt(tz); }
 function dayCoords(d) {
   const c = typeof cityFor === "function" ? cityFor(d) : null; if (!c) return null;
-  const st = c.starts || {}, p = isFinite(c.lat) ? c : [].concat(...Object.values(st)).find(x => x && isFinite(x.lat)) || (c.sites || []).find(x => isFinite(x.lat));
+  const st = c.starts || {}, p = KEngine.fin(c.lat) ? c : [].concat(...Object.values(st)).find(x => x && KEngine.fin(x.lat)) || (c.sites || []).find(x => KEngine.fin(x.lat));
   return { lat: p ? +p.lat : NaN, lng: p ? +p.lng : NaN, country: c.country || "", city: c };
 }
 // { tz, known }: known is true once the zone is certain (saved, or a single-zone country); false while estimated.
@@ -21579,7 +21579,7 @@ function dayZone(d) {
   if (country === "spain" && c && c.lng < -12) return { tz: "Atlantic/Canary", known: true };
   if (country === "portugal") return { tz: c && c.lng < -20 ? "Atlantic/Azores" : c && c.lng < -12 ? "Atlantic/Madeira" : "Europe/Lisbon", known: true };
   if (ONE_ZONE[country] && zoneOk(ONE_ZONE[country])) return { tz: ONE_ZONE[country], known: true };
-  if (c && isFinite(c.lat)) { zoneLookup(d, c); const h = Math.round(c.lng / 15); return { tz: h === 0 ? "Etc/GMT" : `Etc/GMT${h > 0 ? "-" : "+"}${Math.abs(h)}`, known: false }; }
+  if (c && KEngine.fin(c.lat)) { zoneLookup(d, c); const h = Math.round(c.lng / 15); return { tz: h === 0 ? "Etc/GMT" : `Etc/GMT${h > 0 ? "-" : "+"}${Math.abs(h)}`, known: false }; }
   return { tz: deviceZone(), known: false };
 }
 // One lookup per place while online (Open-Meteo answers the zone for any coordinates); saved on the day.
@@ -21589,7 +21589,7 @@ function zoneLookup(d, c) {
   return zoneAsked[k] = fetch(`https://api.open-meteo.com/v1/forecast?latitude=${c.lat.toFixed(3)}&longitude=${c.lng.toFixed(3)}&timezone=auto&forecast_days=1&daily=sunrise`)
     .then(r => r.ok ? r.json() : null).then(j => {
       if (!j || !j.timezone || !zoneOk(j.timezone)) { zoneAsked[k] = 0; return false; }
-      let changed = false; for (const x of trip.days) { const cx = dayCoords(x); if (cx && isFinite(cx.lat) && !x.tz && cx.lat.toFixed(2) + "," + cx.lng.toFixed(2) === k) { x.tz = j.timezone; changed = true; } }
+      let changed = false; for (const x of trip.days) { const cx = dayCoords(x); if (cx && KEngine.fin(cx.lat) && !x.tz && cx.lat.toFixed(2) + "," + cx.lng.toFixed(2) === k) { x.tz = j.timezone; changed = true; } }
       if (changed) { save(); render(); }
       return true;
     }).catch(() => { zoneAsked[k] = 0; return false; });
@@ -21598,7 +21598,7 @@ function zoneLookup(d, c) {
 // saved on the day, so it's there with no signal). Resolves to dayZone(d) either way.
 function ensureDayZone(d) {
   const z = dayZone(d); if (z.known || !d) return Promise.resolve(z);
-  const c = dayCoords(d); if (!c || !isFinite(c.lat)) return Promise.resolve(z);
+  const c = dayCoords(d); if (!c || !KEngine.fin(c.lat)) return Promise.resolve(z);
   return Promise.resolve(zoneLookup(d, c)).then(() => dayZone(d));
 }
 function deviceZone() { try { return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC"; } catch (e) { return "UTC"; } }
@@ -22302,7 +22302,7 @@ function waterAcross(pts, homes, isl, homeIsl, onFoot, far) {
     const other = (mine && known.length) || (!mine && walk === false && far && far(i));
     if (!(walk === "ferry" || walk === "none" || (walk === false && other))) return;
     // The island's name; without the map's answer, stops close together share the first one's name (one island, one boat).
-    const near = !mine && named.find(x => typeof hav === "function" && isFinite(+p.lat) && hav(x.p, p) <= 2);
+    const near = !mine && named.find(x => typeof hav === "function" && KEngine.fin(p.lat) && hav(x.p, p) <= 2);
     out[p.id] = mine ? mine.name : near ? near.name : (p.name || "an island"); named.push({ p, name: out[p.id] }); });
   return out;
 }
@@ -22329,14 +22329,14 @@ async function waterRoadGaps(pts) {
     // Every point as a source and one destination: the answer's "sources" are each point snapped to its nearest road.
     const r = await waterFetch(`https://router.project-osrm.org/table/v1/driving/${coords}?destinations=0`, { signal: AbortSignal.timeout(20000) });
     const k = await r.json(); if (!k || k.code !== "Ok" || !Array.isArray(k.sources)) return null;
-    return k.sources.map(w => isFinite(w && w.distance) ? Math.round(w.distance) : null);
+    return k.sources.map(w => KEngine.fin(w && w.distance) ? Math.round(w.distance) : null);
   } catch (e) { return null; }
 }
 // Ask once per place (and again only when its stops change); the answers become the sights' own fields.
 function waterCheck(city, homes) {
   if (!city || typeof fetch !== "function" || (typeof navigator !== "undefined" && navigator.onLine === false)) return;
-  const stops = allSites(city).filter(s => isFinite(+s.lat) && isFinite(+s.lng)).slice(0, 80);
-  const starts = (homes || []).filter(p => p && isFinite(+p.lat) && isFinite(+p.lng)).slice(0, 6);
+  const stops = allSites(city).filter(s => KEngine.fin(s.lat) && KEngine.fin(s.lng)).slice(0, 80);
+  const starts = (homes || []).filter(p => p && KEngine.fin(p.lat) && KEngine.fin(p.lng)).slice(0, 6);
   if (!stops.length || !starts.length) return;
   const sig = WATER_STORE_V + "|" + stops.map(s => s.id).join(",") + "|" + starts.map(p => (+p.lat).toFixed(3) + "," + (+p.lng).toFixed(3)).join(";");
   if (city.waterSig === sig || waterAsked.get(keyOf(city.city)) === sig) return;
@@ -22435,7 +22435,7 @@ function mealPrefsFor(d) {
   return Object.keys(out).length ? out : null;
 }
 function engineBucket(withOld) {
-  const n = v => (isFinite(+v) ? +v : null);
+  const n = v => (KEngine.fin(v) ? +v : null);
   const pt = p => p ? { id: p.id || null, name: p.name || "", lat: n(p.lat), lng: n(p.lng), unknown: !!p.unknown || (typeof unsurePoint === "function" && unsurePoint(p)), notGate: !!p.notGate, ask: Array.isArray(p.ask) && p.ask.length > 1 ? p.ask.map(String) : null } : null;
   const ints = (() => { try { return interestWords(); } catch (e) { console.warn("engineBucket: interests", e); return []; } })();
   const cityOut = {}, dayOut = [], waterHomes = {};
@@ -22470,7 +22470,7 @@ function engineBucket(withOld) {
       if (!cm.sites) { cm.sites = (city.sites || []).map(s => siteFacts(city, s)); cm.farther = (city.farther || []).map(s => Object.assign(siteFacts(city, s), { far: true })); }
       cityOut[ck] = { key: ck, name: city.city, srcGuide: !!city.srcGuide,
         sites: cm.sites, farther: cm.farther,
-        restaurants: (city.restaurants || []).filter(r => isFinite(+r.lat)).map(r => ({ id: keyOf(r.name), name: r.name, lat: +r.lat, lng: +r.lng, kind: r.kind || "", cuisine: r.cuisine || "",
+        restaurants: (city.restaurants || []).filter(r => KEngine.fin(r.lat)).map(r => ({ id: keyOf(r.name), name: r.name, lat: +r.lat, lng: +r.lng, kind: r.kind || "", cuisine: r.cuisine || "",
           recommended: !!r.recommended, bothGuides: !!r.bothGuides, top: !!r.top, crowdTop: !!r.crowdTop, good: gGood(r.g || gOf(r)), drop: !!r.crowdDrop || gBad(r.g || gOf(r)) })) };
     }
     const L = city ? lodgingFor(d, city) : null; let P = null; try { P = city ? dayPoint(d, city) : null; } catch (e) { P = null; }
@@ -22533,9 +22533,9 @@ function engineBucket(withOld) {
     // What's still missing from the bucket for this day. Planning a day waits until its bucket is complete (or says
     // plainly what it planned without), so a plan is never made from half the pieces and then changed as the rest arrive.
     facts.missing = [!city && !noShore(d) ? "guide" : "", city && !noShore(d) && !L && d.type !== "port" ? "hotel" : "", city && !noShore(d) && !P && d.type !== "land" ? "arrival or departure point" : "",
-      d.type === "port" && !(isFinite(facts.portArrive) && isFinite(facts.allAboard)) ? "ship times" : "", d.type === "embark" && !isFinite(facts.allAboard) ? "all-aboard time" : ""].filter(Boolean);
+      d.type === "port" && !(KEngine.fin(facts.portArrive) && KEngine.fin(facts.allAboard)) ? "ship times" : "", d.type === "embark" && !KEngine.fin(facts.allAboard) ? "all-aboard time" : ""].filter(Boolean);
     dayOut.push(facts);
-    if (city && !noShore(d)) { const h = waterHomes[ck] || (waterHomes[ck] = { city, pts: [] }); [P, L, A].forEach(x => { if (x && isFinite(+x.lat) && !h.pts.some(y => hav(x, y) < 0.2)) h.pts.push(x); }); }
+    if (city && !noShore(d)) { const h = waterHomes[ck] || (waterHomes[ck] = { city, pts: [] }); [P, L, A].forEach(x => { if (x && KEngine.fin(x.lat) && !h.pts.some(y => hav(x, y) < 0.2)) h.pts.push(x); }); }
   });
   // Which stops are across the water and how far each is from a road: asked of the map once per place, in the background.
   if (typeof waterCheck === "function") Object.values(waterHomes).forEach(h => { try { waterCheck(h.city, h.pts); } catch (e) { console.warn("water check", e); } });
@@ -22584,7 +22584,7 @@ if (typeof window !== "undefined" && window.ENGINE2 && window.KEngine) (function
   // vanished, and the train he then picked "wasn't known"). Each ride reads the answer kept for the trip's own dates,
   // in date order, the first one found (a Friday ride on a Friday's timetable when the trip has one).
   // One date for each kind of timetable day (weekday, Saturday, Sunday) in the trip, earliest first: three looks at most.
-  const tripDates = () => { const seen = new Map(); for (const dt of (trip.days || []).map(d => d.date).filter(Boolean).sort()) { const t = Date.parse(dt + "T12:00:00Z"); if (!isFinite(t)) continue; const k = dayKind(new Date(t).getUTCDay()); if (!seen.has(k)) seen.set(k, dt); } return [...seen.values()]; };
+  const tripDates = () => { const seen = new Map(); for (const dt of (trip.days || []).map(d => d.date).filter(Boolean).sort()) { const t = Date.parse(dt + "T12:00:00Z"); if (!KEngine.fin(t)) continue; const k = dayKind(new Date(t).getUTCDay()); if (!seen.has(k)) seen.set(k, dt); } return [...seen.values()]; };
   // Asked for thousands of rides on every replan: each pair's answer is kept until an answer arrives (nearGen) or the
   // trip's dates change.
   let peekMemo = new Map(), peekGen = "";
@@ -22597,7 +22597,7 @@ if (typeof window !== "undefined" && window.ENGINE2 && window.KEngine) (function
   const askRides = ep => { (ep && ep.items || []).forEach(x => { if (x.t === "ride" && x.from && x.to && x.mode !== "walk" && x.mode !== "boat" && x.mode !== "lift") { try { transitFor(x.from, x.to); } catch (e) {} } }); };
   // R-33: every walk and taxi the plans take is asked for its real route once (see askRouteTimes in main.js).
   const askRoutes = plans => { const pairs = [];
-    (plans || []).forEach(ep => (ep && ep.items || []).forEach(x => { if (x.t !== "ride" || !x.from || !x.to || !isFinite(+x.from.lat) || !isFinite(+x.to.lat)) return; const d = hav(x.from, x.to); if (d < 0.15) return;
+    (plans || []).forEach(ep => (ep && ep.items || []).forEach(x => { if (x.t !== "ride" || !x.from || !x.to || !KEngine.fin(x.from.lat) || !KEngine.fin(x.to.lat)) return; const d = hav(x.from, x.to); if (d < 0.15) return;
       if (x.mode === "walk" || d <= 3) pairs.push(["foot", x.from, x.to]); if (x.mode !== "walk" && x.mode !== "boat" && x.mode !== "lift" && d > 0.5) pairs.push(["car", x.from, x.to]); }));
     if (pairs.length && typeof askRouteTimes === "function") setTimeout(() => askRouteTimes(pairs), 0); };
   const routeSig = (a, b) => JSON.stringify(typeof routeTimeOf === "function" ? routeTimeOf(a, b) : null);
@@ -22628,8 +22628,8 @@ if (typeof window !== "undefined" && window.ENGINE2 && window.KEngine) (function
         const shapes = own.shapes.map(x => { const h = x.walk == null && by.get(x.id); return h && h.walk != null ? Object.assign({}, x, { walk: h.walk }) : x; });
         out = out || Object.assign({}, P2); out[key] = Object.assign({}, P, { islands: Object.assign({}, own, { shapes }) }); continue; }
       if (got) { out = out || Object.assign({}, P2); out[key] = Object.assign({ key }, P || {}, { islands: got }); continue; }
-      const d = (bucket.days || []).find(x => x && x.city === key && ((x.point && isFinite(+x.point.lat)) || (x.lodging && isFinite(+x.lodging.lat))));
-      const c = d && (d.point && isFinite(+d.point.lat) ? d.point : d.lodging); if (c) setTimeout(() => askIsles(key, c), 0); }
+      const d = (bucket.days || []).find(x => x && x.city === key && ((x.point && KEngine.fin(x.point.lat)) || (x.lodging && KEngine.fin(x.lodging.lat))));
+      const c = d && (d.point && KEngine.fin(d.point.lat) ? d.point : d.lodging); if (c) setTimeout(() => askIsles(key, c), 0); }
     return out || P2; }
   if (typeof window !== "undefined") { window.__kairouteIsles = () => ({ gen: islesGen, keys: Object.keys(islesMem), set: (k, v) => { islesMem[k] = v; islesGen++; nearGen++; } }); window.__kairoutePlacesWithIsles = b => placesWithIsles(b); }
   // The whole trip planned once per change (the traveler's trip, an answer arriving, the guides, the date).
@@ -22646,7 +22646,7 @@ if (typeof window !== "undefined" && window.ENGINE2 && window.KEngine) (function
       const have = new Set(allSites(city).map(x => String(x.id)));
       const app = (s, far) => Object.assign({ id: s.id, name: s.name, lat: s.lat, lng: s.lng, minutes: s.minutes || 30, category: s.category || "Sight", summary: s.blurb || "",
         mustSee: false, quick: false, unesco: !!s.unesco, fromPlaces: true }, far ? { far: true, town: s.town, townName: s.townName, travel: s.travelNote || "" } : {}, s.web ? { web: s.web } : {});
-      const addS = (bc.sites || []).filter(s => !have.has(String(s.id)) && isFinite(s.lat)), addF = (bc.farther || []).filter(s => !have.has(String(s.id)) && isFinite(s.lat));
+      const addS = (bc.sites || []).filter(s => !have.has(String(s.id)) && KEngine.fin(s.lat)), addF = (bc.farther || []).filter(s => !have.has(String(s.id)) && KEngine.fin(s.lat));
       if (addS.length) city.sites = (city.sites || []).concat(addS.map(s => app(s, false)));
       if (addF.length) city.farther = (city.farther || []).concat(addF.map(s => app(s, true))); });
   }
@@ -22728,11 +22728,11 @@ if (typeof window !== "undefined" && window.ENGINE2 && window.KEngine) (function
   // something to take along; none known, the card says to bring it from the ship or hotel (Richard, Nov 22, Pompeii:
   // "If there is no restaurants in this area, we need to suggest bringing a meal or grabbing something at the previous stop").
   function packedBuy(items, city) {
-    const pts = items.filter(it => (it.type === "stop" || it.type === "start") && it.place && isFinite(it.place.lat));
+    const pts = items.filter(it => (it.type === "stop" || it.type === "start") && it.place && KEngine.fin(it.place.lat));
     const visit = pts.length && pts[pts.length - 1].type === "stop" ? pts[pts.length - 1].place : null, prev = pts.length > 1 ? pts[pts.length - 2] : null;
     const out = { inVisit: visit ? visit.name || "" : "" };
     if (!prev || !prev.place) return out;
-    const P = prev.place, eat = ((city || {}).restaurants || []).filter(r => r && !r.generic && !r.crowdDrop && isFinite(+r.lat) && E.mealPlace(r) && hav(P, r) <= 0.6 && (!visit || hav(visit, r) > 0.6))
+    const P = prev.place, eat = ((city || {}).restaurants || []).filter(r => r && !r.generic && !r.crowdDrop && KEngine.fin(r.lat) && E.mealPlace(r) && hav(P, r) <= 0.6 && (!visit || hav(visit, r) > 0.6))
       .sort((a, b) => hav(P, a) - hav(P, b) || String(a.name).localeCompare(String(b.name)))[0];
     out.buyNear = prev.type === "start" ? (P.name || String(prev.label || "").replace(/^Leave\s+/i, "") || "your start") : P.name || ""; // the place, never the step's label ("Leave Hotel in Plaka")
     if (eat) out.buy = { name: eat.name, lat: +eat.lat, lng: +eat.lng };
@@ -22758,8 +22758,8 @@ if (typeof window !== "undefined" && window.ENGINE2 && window.KEngine) (function
           leg.key = E.pairKey(x.pairFrom || x.from, x.pairTo || x.to); leg.choice = x.choice;
           // On the way back to the ship, train or plane, a way that would arrive after the time to be back is not offered
           // (stop-card review, Nov 22: slower ways to the ship were still offered beside the one planned).
-          const nx = ep.items[k + 1], leave = nx && nx.t === "end" && isFinite(nx.at) ? nx.at - (x.min || 0) : null;
-          const inTime = o => !(w.hard && leave != null && isFinite(ep.endBy) && o.id !== x.choice && leave + o.min > ep.endBy);
+          const nx = ep.items[k + 1], leave = nx && nx.t === "end" && KEngine.fin(nx.at) ? nx.at - (x.min || 0) : null;
+          const inTime = o => !(w.hard && leave != null && KEngine.fin(ep.endBy) && o.id !== x.choice && leave + o.min > ep.endBy);
           leg.choices = x.options.filter(inTime).map(o => Object.assign({ id: o.id, label: o.how, min: o.min, kind: UIKIND[o.kind] || "car" }, o.kind !== "walk" && o.source !== "timetable" ? { est: true } : {})); // est: no timetable confirms its time
         }
         items.push({ type: "travel", leg, time: (items.length ? items[items.length - 1].time + (items[items.length - 1].dur || 0) : ep.start) }); return;
@@ -22816,4 +22816,4 @@ render();
 
 </script>
 <script>if ("serviceWorker" in navigator) addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));</script>
-<script>(function(){var B="03764fc7-1795699416";function ep(v){return +String(v).split("-").pop()||0}function busy(){return document.body&&document.body.classList.contains("touring-on")}function chk(){if(location.protocol!=="https:"||document.visibilityState!=="visible")return;fetch("version.txt",{cache:"no-store"}).then(function(r){return r.ok?r.text():""}).then(function(t){t=t.trim();if(!t||t===B||ep(t)<=ep(B)||busy())return;var k="kairoute.reloadedTo",s="";try{s=sessionStorage.getItem(k)||"";sessionStorage.setItem(k,t)}catch(e){}if(s===t){var u=new URL(location.href);if(u.searchParams.get("v")===t)return;u.searchParams.set("v",t);location.replace(u.href)}else location.reload()}).catch(function(){})}addEventListener("load",chk);addEventListener("pageshow",function(e){if(e.persisted)chk()});addEventListener("focus",chk);document.addEventListener("visibilitychange",chk);setInterval(chk,300000);if(navigator.serviceWorker)navigator.serviceWorker.addEventListener("message",function(e){if(e.data&&e.data.type==="kairoute-sw"){try{e.source.postMessage({type:"kairoute-alive"})}catch(x){}chk()}})})();</script>
+<script>(function(){var B="1377e22d-1795708960";function ep(v){return +String(v).split("-").pop()||0}function busy(){return document.body&&document.body.classList.contains("touring-on")}function chk(){if(location.protocol!=="https:"||document.visibilityState!=="visible")return;fetch("version.txt",{cache:"no-store"}).then(function(r){return r.ok?r.text():""}).then(function(t){t=t.trim();if(!t||t===B||ep(t)<=ep(B)||busy())return;var k="kairoute.reloadedTo",s="";try{s=sessionStorage.getItem(k)||"";sessionStorage.setItem(k,t)}catch(e){}if(s===t){var u=new URL(location.href);if(u.searchParams.get("v")===t)return;u.searchParams.set("v",t);location.replace(u.href)}else location.reload()}).catch(function(){})}addEventListener("load",chk);addEventListener("pageshow",function(e){if(e.persisted)chk()});addEventListener("focus",chk);document.addEventListener("visibilitychange",chk);setInterval(chk,300000);if(navigator.serviceWorker)navigator.serviceWorker.addEventListener("message",function(e){if(e.data&&e.data.type==="kairoute-sw"){try{e.source.postMessage({type:"kairoute-alive"})}catch(x){}chk()}})})();</script>
