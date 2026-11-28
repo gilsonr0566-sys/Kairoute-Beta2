@@ -492,6 +492,11 @@ details.more summary { cursor: pointer; font-weight: 700; color: var(--route); }
 .itin { display: grid; gap: 4px; max-height: none; }
 .itrow { display: grid; grid-template-columns: 52px 30px 1fr auto; gap: 8px; align-items: center; padding: 5px 8px; border-radius: 10px; border: 1px solid transparent; background: none; text-align: left; cursor: pointer; width: 100%; }
 .itrow:hover { background: var(--card); }
+/* Swap two days, remove a day (features/day-moves.js) */
+.dmrow { display: flex; flex-wrap: wrap; gap: 8px; margin: 6px 0 10px; }
+.dmbox { margin: 0 0 12px; } .dmbox.warn { border-color: var(--warn); }
+.dmlist { display: flex; flex-direction: column; gap: 6px; margin: 8px 0; } .dmlist .dmpick { text-align: left; justify-content: flex-start; min-height: 44px; white-space: normal; }
+.dmwhy { margin: 6px 0; padding-left: 18px; color: var(--muted); font-size: .9em; } .dmnote { margin: 4px 0 8px; }
 .itrow.active { background: var(--card); border-color: var(--route); box-shadow: inset 4px 0 0 var(--route); }
 .itrow .dt { font-variant-numeric: tabular-nums; font-size: 0.82rem; color: var(--muted); font-weight: 700; line-height: 1.2; }
 .itrow .ic { width: 28px; height: 28px; border-radius: 9px; display: grid; place-items: center; background: var(--route-soft); color: var(--route); font-size: 1rem; }
@@ -4629,7 +4634,7 @@ if (typeof module !== "undefined") module.exports = KEngine;
       if (k >= 0 && other >= 0) { p.explain[k] = m.inside ? m.name + " is inside " + m.inside + ": seen on " + dayWord(other) + "." : m.name + " is closed on " + dayWord(m.from) + ", and it's planned on " + dayWord(other) + "."; continue; }
       // With the numbers the other day's planner gave (what it needs and what was left there), never a bare "didn't fit".
       const qw = q && q.dropWhy && q.dropWhy[id], num = qw && /\d/.test(qw) ? " (it " + qw + ")" : "";
-      if (k >= 0) p.explain[k] = m.inside ? m.name + " is inside " + m.inside + ", planned on " + dayWord(m.to) + ", but it didn't fit that day" + num + "." : m.name + " is closed on " + dayWord(m.from) + ", and it didn't fit on " + dayWord(m.to) + ", the day it's open" + num + "."; }
+      if (k >= 0) p.explain[k] = m.inside ? m.name + " is inside " + m.inside + ", planned on " + dayWord(m.to) + ", but it didn't fit that day" + num + "." : m.name + " is closed on " + dayWord(m.from) + ", and it didn't fit on " + dayWord(m.to) + ", one of the days it's open" + num + "."; }
     // Every tick is answered on its own day (R-21): a sight ticked on two days and taken by the other one is named here
     // with that day, never left unsaid (odd trips, Nov 25: two churches ticked on Friday and Sunday were explained
     // only on Sunday, and Friday's screen said nothing of them).
@@ -7739,7 +7744,8 @@ function rideExtra(leg) {
   // Each sentence once a day: the ride out and the ride back carry the same guide's words (UI check, Nov 20).
   const said = leg.note ? String(leg.note).split(/(?<=[.!?])\s+(?=[A-Z])/).map(rideOnce).filter(Boolean).join(" ") : "";
   const note = said ? `<span class="sub ridesub ridenoteguide">${esc(said)}</span>` : "";
-  const wait = leg.asking ? `<span class="sub ridesub ridewait">${leg.asking === "offline" ? "With no signal, trains, buses and boats for this ride can't be looked up, so for now it's planned by road. The day updates when you're back online." : leg.asking === "unreached" ? "Kairoute can't reach its ride lookup right now, so trains, buses and boats for this ride aren't known and it's planned by road. Check other ways to go before you set out." : "Trains, buses and boats for this ride haven't come in yet, so for now it's planned by road. The day updates on its own when they do."}</span>` : "";
+  const wait = leg.asking && leg.askingLines ? `<span class="sub ridesub ridewait">${leg.asking === "offline" ? "With no signal, timetables for this ride can't be looked up: other ways to go, a boat among them, may not be shown." : leg.asking === "unreached" ? "Kairoute can't reach its ride lookup right now: other ways to go, a boat among them, may not be shown. Check before you set out." : "Timetables for this ride haven't come in yet: more ways to go, a boat among them, may appear. The day updates on its own."}</span>`
+    : leg.asking ? `<span class="sub ridesub ridewait">${leg.asking === "offline" ? "With no signal, trains, buses and boats for this ride can't be looked up, so for now it's planned by road. The day updates when you're back online." : leg.asking === "unreached" ? "Kairoute can't reach its ride lookup right now, so trains, buses and boats for this ride aren't known and it's planned by road. Check other ways to go before you set out." : "Trains, buses and boats for this ride haven't come in yet, so for now it's planned by road. The day updates on its own when they do."}</span>` : "";
   return steps + lost + note + wait;
 }
 // The same general line under every ride ("By road, with time for traffic.") is said once a day, on the first ride
@@ -10865,14 +10871,16 @@ function stayFoundLine(L) {
 async function geocodeLodging(d) {
   const k = cityKeyFor(d) || keyOf(d.destination);
   const L = trip.lodging[k];
-  if (!L || !L.name) return;
+  if (!L) return;
+  // R-38: an empty box says what to type; a search that can't be reached says so (never "couldn't find").
+  if (!String(L.name || "").trim()) { if (window.__kairoutePlant === "stay-empty-silent") return; L.miss = "Type your hotel's name, or its street and house number, then tap Find it."; L.failed = false; render(); if (window.__kairoutePlant !== "stay-empty-nofocus") { const f = document.getElementById("f-lname"); if (f) f.focus(); } return; }
   if (!aiReady()) { // no AI: the map's own search finds the hotel by name
-    if (!freeAI) return;
     busy = { text: "Finding " + L.name + "…" }; render();
     const typed = L.name, h = await findHotelNoAI(typed, d); busy = null;
     // R-38: found by name, at its door, or (a short street only) on its street, and the screen says which; else said plainly.
+    L.failed = !!(!h || h.failed) && window.__kairoutePlant !== "stay-down-as-none";
     if (h && KEngine.fin(h.lat)) { delete L.miss; L.ll = { lat: h.lat, lng: h.lng }; L.typed = typed; L.name = h.name; L.how = h.how; L.nums = h.nums || []; aiError = ""; save(); }
-    else { L.ll = null; L.how = ""; L.typed = typed; aiError = ""; L.miss = h && h.failed ? "The map search didn't answer just now, so " + typed + " isn't placed yet. Tap Find it again in a minute." : "I couldn't find \u201c" + typed + "\u201d in " + bareName(d.destination) + " on the map. Try the name on your booking, or the street and house number. " + (() => { const f = lodgingFor(d, cityFor(d)); return f && f.name ? "Until then your days start from " + f.name + "." : ""; })(); }
+    else { L.ll = null; L.how = ""; L.typed = typed; aiError = ""; L.miss = L.failed ? "The map search didn't answer" + (navigator.onLine === false ? " (no internet connection)" : " just now") + ", so \u201c" + typed + "\u201d isn't placed on the map yet. Tap Find it again in a minute." : "I couldn't find \u201c" + typed + "\u201d in " + bareName(d.destination) + " on the map. Try the name on your booking, or the street and house number. " + (() => { const f = lodgingFor(d, cityFor(d)); return f && f.name ? "Until then your days start from " + f.name + "." : ""; })(); }
     render(); return;
   }
   busy = { text: "Finding " + L.name + "…" }; render();
@@ -12947,6 +12955,7 @@ function renderTrip(d) {
       ${busyBlock()}${errBlock()}
       <form class="card" id="dayForm" autocomplete="off">
         <div class="eyebrow">${esc(fmtDow(d.date))} ${esc(fmtDate(d.date))}</div>
+        ${typeof dayMovesHTML === "function" ? dayMovesHTML(d) : ""}
         <div class="row2">
           <div class="field"><label for="f-dest">${t === "port" ? "Port" : "City"}</label><input type="text" id="f-dest" value="${esc(d.destination)}" placeholder="e.g. Rome, Nashville, Juneau"></div>
           <div class="field"><label for="f-date">Date</label><input type="date" id="f-date" value="${esc(d.date)}"></div>
@@ -14668,6 +14677,7 @@ document.addEventListener("click", e => {
   if (act === "gen") { generateCity(day()); return; }
   if (act === "closedmove") { moveClosed(t.dataset.id, +t.dataset.to); return; }
   if (act === "closedswap") { swapClosed(t.dataset.id, t.dataset.alt); return; }
+  if (typeof dayMoveAct === "function" && dayMoveAct(act, t)) return; // swap two days, remove a day (features/day-moves.js, R-39)
   if (liveAct(act, t)) return;
   if (tixAct(act, t)) return;
   if (shipClick(t)) return;
@@ -15489,6 +15499,181 @@ function backByOf(d, plan) {
   const F = dayFacts(d, plan), freeOn = F && F.left >= 30 && !(plan.dropped || []).length && !(plan.w && plan.w.straight);
   return freeOn ? F.endBy : Math.min(plan.end, plan.endBy);
 }
+// ---------- Swap two days, remove a day (R-39) ----------
+// Richard, Nov 27: "A way to move a planned day and swap it for a different day" and "I see a way to add a day but not to
+// remove a day". Both live on the Trip screen, under the day's date, as few taps as possible: Swap (tap) then the other
+// day (tap); Remove (tap) then Remove the day (tap). Each can be undone with one tap.
+//
+// The rule (R-39), for every trip and every day:
+//  - A swap moves the traveler's PLAN for the day (picks, own order, meal choices, hours, name), never the travel. The
+//    date, the place, the hotel and every ship, train and flight time stay on their date. Only two sightseeing days in
+//    the same place swap; an arrival, leaving, boarding, port or sea day is refused with its plain reason, and so is a
+//    day already over or a day whose tour has started. A booking or an event stays on its own date (it was booked for
+//    that date) and the note says so.
+//  - Both swapped days are planned again for their new dates through the one planner (opening hours, closed days,
+//    holidays, lunch and the safety guard all run as for any day); a heart on either day comes off, since the day it
+//    marked is no longer that plan. Every pick is still accounted for: planned, or named on its day.
+//  - Removing a day never moves another day's date: the other days keep their dates, so the trip ends on its last day.
+//    A ship, train or flight day is never removed by accident: the question names the travel and says to remove it only
+//    if the booking changed. The removed day's picks go to another day in the same place where they fit (never onto a
+//    hearted day), the rest back to the sights list, and the note names each one.
+// Checked on the real screen by tools/ui/day-moves-check.cjs (with planted copies that must fail).
+let dmOpen = null;   // { kind: "swap" | "remove", id: day id } while the swap list or the remove question is open
+let dmNote = null;   // { text, warn, undo } after a swap or a removal
+// The traveler's plan for a day: what moves with a swap. Everything else (date, place, type, ship/train/flight times,
+// the arrival point, bookings, events, weather, tour progress, the heart) stays with its date.
+const DM_PLAN = ["selected", "cleared", "ownList", "autoEmpty", "seedSig", "mine", "anchor", "order", "orderOk", "pendingOrder", "pendingCut", "cutOk",
+  "mealAt", "mealPrefs", "title", "titleTyped", "pickNames", "wants", "wantsAsked", "skipBonus", "bumped", "movedIn", "startTime", "hours",
+  "returnToStart", "alongWay", "fillTime", "grpOwn", "grpOrder", "grpOrderSel", "grpTour", "grpTourPicks", "grpTourMeals", "grpTourCleared", "grpFold", "grpUndo"];
+const dmWhen = d => (d.date ? fmtDow(d.date) + " " + fmtDate(d.date) : "this day");
+const dmPlace = d => keyOf(cityKeyFor(d) || d.destination || "");
+const dmModeWord = d => d.type === "port" || d.type === "embark" ? "ship" : (MODES[d.mode] ? MODES[d.mode].label.toLowerCase() : "travel");
+// Why a day can't take part in a swap, in plain words (null when it can).
+function dmTravelWhy(d) {
+  if (d.type === "arrival") return `${dmWhen(d)} is your arrival day: the ${dmModeWord(d)} arriving${d.time ? " at " + d.time : ""} stays on its date`;
+  if (d.type === "departure") return `${dmWhen(d)} is your leaving day: the ${dmModeWord(d)}${d.time ? " at " + d.time : ""} stays on its date`;
+  if (d.type === "embark") return `${dmWhen(d)} is your boarding day: the ship${d.allAboard ? " (all aboard " + d.allAboard + ")" : ""} stays on its date`;
+  if (d.type === "port") return `${dmWhen(d)} is a cruise port day: the ship's times${d.allAboard ? " (all aboard " + d.allAboard + ")" : ""} stay on their date`;
+  if (d.type === "sea") return `${dmWhen(d)} is a day at sea`;
+  return null;
+}
+function dmWhyNot(d) {
+  if (!d) return "That day is no longer in the trip";
+  const tw = dmTravelWhy(d); if (tw) return tw;
+  if (d.date && d.date < todayISO(d)) return `${dmWhen(d)} is already over`;
+  if (trip.tour && trip.tour.dayId === d.id && !trip.tour.left) return `your tour of ${dmWhen(d)} has started`;
+  return null;
+}
+function swapWhyNot(a, b) {
+  if (!a || !b || a === b) return "Choose another day";
+  const wa = dmWhyNot(a); if (wa) return wa;
+  const wb = dmWhyNot(b); if (wb) return wb;
+  if (dmPlace(a) !== dmPlace(b)) return `${dmWhen(b)} is in ${mainPlace(b) || "another place"}: a day swaps only with another day in ${mainPlace(a) || "the same place"}`;
+  return null;
+}
+const dmPicks = d => (Array.isArray(d.selected) ? d.selected : []);
+const dmName = (d, id) => { const c = cityFor(d), s = c ? allSites(c).find(x => x.id === id) : null; return s ? s.name : null; };
+function dmForget() { bonusMemo = new Map(); mealMemo = new Map(); keptMemo = new Map(); eveMemo = new Map(); if (typeof fitEpoch === "number") fitEpoch++; }
+function swapDays(a, b) {
+  const why = swapWhyNot(a, b); if (why) return why;
+  const snap = { a: dmPlanOf(a), b: dmPlanOf(b), ra: a.ready ? JSON.parse(JSON.stringify(a.ready)) : null, rb: b.ready ? JSON.parse(JSON.stringify(b.ready)) : null };
+  dmSetPlan(a, snap.b); dmSetPlan(b, snap.a);
+  // The plan moved is the traveler's choice for that date: it is kept as their own list (an app-chosen list would
+  // otherwise be chosen again for the date and come back as it was).
+  for (const d of [a, b]) if (Array.isArray(d.selected)) { d.ownList = true; delete d.autoEmpty; }
+  // A heart marked the plan that was on its date: that plan has moved, so the heart comes off both days.
+  for (const d of [a, b]) { delete d.ready; delete d.askReady; }
+  dmForget(); edited(); save();
+  dmLastSwap = { a: a.id, b: b.id, snap };
+  return null;
+}
+let dmLastSwap = null;
+const dmPlanOf = d => { const o = {}; for (const k of DM_PLAN) if (Object.prototype.hasOwnProperty.call(d, k)) o[k] = JSON.parse(JSON.stringify(d[k] === undefined ? null : d[k])); return o; };
+function dmSetPlan(d, o) { for (const k of DM_PLAN) { if (Object.prototype.hasOwnProperty.call(o, k)) d[k] = JSON.parse(JSON.stringify(o[k])); else delete d[k]; } }
+// What a swapped day shows after it is planned again for its new date: the picks it doesn't plan, and why when the
+// sight is closed that day. The day's own page says the same (R-21); the note only points to it.
+function dmUnplanned(d) {
+  let p = null; try { p = buildPlan(d); } catch (e) { return []; }
+  if (!p || p.error || !p.items) return [];
+  const on = new Set(); p.items.forEach(x => { if (x.type === "stop" && x.place) { on.add(String(x.place.id)); (x.place.includesIds || []).forEach(y => on.add(String(y))); } });
+  (p.folded || []).forEach(x => on.add(String(x && x.id != null ? x.id : x)));
+  const c = cityFor(d);
+  return dmPicks(d).filter(id => !on.has(String(id))).map(id => { const s = c ? allSites(c).find(x => x.id === id) : null; if (!s) return null;
+    const shut = typeof shutOn === "function" && shutOn(d, s); return s.name + (shut ? " (closed that day)" : ""); }).filter(Boolean);
+}
+function dmSwapNote(a, b) {
+  const parts = [`Swapped: ${dmWhen(a)} now has the plan that was on ${dmWhen(b)}, and ${dmWhen(b)} the plan from ${dmWhen(a)}. Both days were planned again for their new dates (opening hours, closed days and lunch).`];
+  for (const d of [a, b]) { const u = dmUnplanned(d); if (u.length) parts.push(`Not planned on ${dmWhen(d)}: ${u.join(", ")}. The day says why.`); }
+  for (const d of [a, b]) { const bk = Object.keys(d.booked || {}); if (bk.length) parts.push(`Your booked ${bk.join(" and ").toLowerCase()} stays on ${dmWhen(d)}, the date it was booked for.`);
+    if (d.event) parts.push(`${d.event} stays on ${dmWhen(d)}.`); }
+  return parts.join(" ");
+}
+// Remove a day. The other days keep their dates; the day's picks go to another day in the same place where they fit.
+function removeDay(d) {
+  const i = trip.days.indexOf(d); if (i < 0) return "That day is no longer in the trip";
+  if (trip.days.length < 2) return "A trip needs at least one day";
+  const snap = JSON.parse(JSON.stringify(d)), picks = dmPicks(d).slice(), names = {};
+  picks.forEach(id => { names[id] = dmName(d, id) || id; });
+  trip.days.splice(i, 1);
+  if (trip.tour && trip.tour.dayId === d.id) trip.tour = null;
+  if (trip.active >= trip.days.length || trip.active > i) trip.active = Math.max(0, Math.min(trip.days.length - 1, trip.active > i ? trip.active - 1 : trip.active));
+  dmForget();
+  // Picks go to another sightseeing day in the same place, only where they fit and never onto a hearted day. A pick
+  // moved stays the traveler's own there (an app-chosen list would be chosen again by the planner and lose it).
+  const place = dmPlace(d), others = trip.days.filter(o => tourDay(o) && o.type !== "sea" && dmPlace(o) === place && !o.ready && !(o.date && o.date < todayISO(o)));
+  const moved = {}, back = [], wasOwn = {};
+  picks.forEach(id => { let put = null;
+    for (const o of others) { if (dmPicks(o).includes(id)) { put = o; break; } let ok = false; try { ok = addPick(o, id, false); } catch (e) { ok = false; } if (ok) { if (!(o.id in wasOwn)) wasOwn[o.id] = !!o.ownList; (moved[o.id] = moved[o.id] || []).push(id); markMine(o, id, true); o.ownList = true; put = o; break; } }
+    if (!put) back.push(id); });
+  edited(); save();
+  const text = [`Removed ${dmWhen(d)} (${mainPlace(d) || "New day"}). The other days keep their dates${trip.days.length ? `: the trip now ends ${dmWhen(trip.days.map(x => x).sort((x, y) => String(x.date).localeCompare(String(y.date)))[trip.days.length - 1])}` : ""}.`];
+  Object.entries(moved).forEach(([oid, ids]) => { const o = trip.days.find(x => x.id === oid); if (o) text.push(`Moved to ${dmWhen(o)}: ${ids.map(id => names[id]).join(", ")}.`); });
+  if (back.length) text.push(`Back in the sights list: ${back.map(id => names[id]).join(", ")}.`);
+  dmNote = { text: text.join(" "), undo: { kind: "remove", day: snap, idx: i, moved, wasOwn } };
+  return null;
+}
+function dmUndo() {
+  const u = dmNote && dmNote.undo; dmNote = null; if (!u) return;
+  if (u.kind === "swap") { const a = trip.days.find(x => x.id === u.a), b = trip.days.find(x => x.id === u.b);
+    if (a && b && u.snap) { dmSetPlan(a, u.snap.a); dmSetPlan(b, u.snap.b); if (u.snap.ra) a.ready = u.snap.ra; if (u.snap.rb) b.ready = u.snap.rb; dmForget(); edited(); save(); dmNote = { text: `Undone: ${dmWhen(a)} and ${dmWhen(b)} have their own plans back.` }; } return; }
+  if (u.kind === "remove" && !trip.days.some(x => x.id === u.day.id)) {
+    Object.entries(u.moved || {}).forEach(([oid, ids]) => { const o = trip.days.find(x => x.id === oid); if (o && Array.isArray(o.selected)) { o.selected = o.selected.filter(id => !ids.includes(id)); if (Array.isArray(o.mine)) o.mine = o.mine.filter(id => !ids.includes(id)); if (u.wasOwn && u.wasOwn[oid] === false) delete o.ownList; } });
+    const at = Math.min(u.idx, trip.days.length); trip.days.splice(at, 0, u.day); trip.active = at; dmForget(); edited(); save();
+    dmNote = { text: `Undone: ${dmWhen(u.day)} is back with its plan.` };
+  }
+}
+// The Trip screen's controls, under the day's date in the day's card.
+function dayMovesHTML(d) {
+  if (!d) return "";
+  const btns = `<div class="dmrow"><button type="button" class="btn ghost small" data-act="dmswap" aria-expanded="${dmOpen && dmOpen.kind === "swap" && dmOpen.id === d.id}">⇄ Swap with another day</button><button type="button" class="btn ghost small" data-act="dmremove" aria-expanded="${dmOpen && dmOpen.kind === "remove" && dmOpen.id === d.id}">✕ Remove this day</button></div>`;
+  let box = "";
+  if (dmOpen && dmOpen.id === d.id && dmOpen.kind === "swap") {
+    const own = dmWhyNot(d);
+    if (own) box = `<p class="banner warn dmbox" role="status">This day can't be swapped: ${esc(own)}. Only sightseeing days in the same place swap; travel days stay with their bookings.</p>`;
+    else {
+      const ok = trip.days.filter(o => o !== d && !swapWhyNot(d, o)), same = trip.days.filter(o => o !== d && dmPlace(o) === dmPlace(d) && swapWhyNot(d, o));
+      box = `<div class="card dmbox" role="group" aria-label="Swap with which day"><p class="lede">${ok.length ? `Swap ${esc(dmWhen(d))} with which day? The plans change places; dates, hotel and travel stay put.` : `No other sightseeing day in ${esc(mainPlace(d) || "this place")} to swap with.`}</p>
+        ${ok.length ? `<div class="dmlist">${ok.map(o => `<button type="button" class="btn small dmpick" data-act="dmswapto" data-id="${esc(o.id)}"><b>${esc(dmWhen(o))}</b> · ${esc(dayName(o))} · ${dmPicks(o).length} pick${dmPicks(o).length === 1 ? "" : "s"}</button>`).join("")}</div>` : ""}
+        ${same.length ? `<ul class="dmwhy">${same.map(o => `<li>${esc(swapWhyNot(d, o))}.</li>`).join("")}</ul>` : ""}
+        <button type="button" class="linkbtn" data-act="dmclose">Cancel</button></div>`;
+    }
+  }
+  if (dmOpen && dmOpen.id === d.id && dmOpen.kind === "remove") {
+    const tw = dmTravelWhy(d), n = dmPicks(d).length;
+    const travel = d.type === "arrival" || d.type === "departure" || d.type === "embark" || d.type === "port";
+    box = `<div class="card dmbox ${travel ? "warn" : ""}" role="alertdialog" aria-label="Remove this day"><p class="lede"><b>Remove ${esc(dmWhen(d))} (${esc(mainPlace(d) || "New day")})?</b> ${travel ? esc(tw) + " in your booking. Remove it only if your booking changed: Kairoute then plans nothing for the " + esc(dmModeWord(d)) + " that day. " : ""}${n ? `Its ${n} pick${n === 1 ? "" : "s"} move to another day in ${esc(mainPlace(d) || "this place")} where they fit; the rest go back to the sights list. ` : ""}The other days keep their dates.</p>
+      <div class="actions"><button type="button" class="btn small" data-act="dmremoveyes" data-id="${esc(d.id)}">Remove the day</button><button type="button" class="btn ghost small" data-act="dmclose">Keep it</button></div></div>`;
+  }
+  const note = dmNote ? `<p class="banner ${dmNote.warn ? "warn" : "ok"} dmnote" role="status">${esc(dmNote.text)}${dmNote.undo ? ` <button type="button" class="linkbtn" data-act="dmundo">Undo</button>` : ""}</p>` : "";
+  return note + btns + box;
+}
+// The note says what the tap did: it is brought into view (the list it was tapped in has closed above it).
+function dmShowNote() { setTimeout(() => { const n = document.querySelector(".dmnote"); if (n && n.scrollIntoView) n.scrollIntoView({ block: "center" }); }, 30); }
+function dayMoveAct(act, t) {
+  if (!/^dm/.test(act || "")) return false;
+  const d = day();
+  if (act === "dmswap" || act === "dmremove") { const k = act === "dmswap" ? "swap" : "remove"; readForm(); dmOpen = dmOpen && dmOpen.kind === k && dmOpen.id === d.id ? null : { kind: k, id: d.id }; dmNote = null; render(); return true; }
+  if (act === "dmclose") { dmOpen = null; render(); return true; }
+  if (act === "dmundo") { dmOpen = null; dmUndo(); render(); return true; }
+  if (act === "dmswapto") {
+    const b = trip.days.find(x => x.id === t.dataset.id); dmOpen = null;
+    const why = swapDays(d, b);
+    dmNote = why ? { text: `Not swapped: ${why}.`, warn: true } : { text: dmSwapNote(d, b), undo: Object.assign({ kind: "swap" }, dmLastSwap) };
+    render(); dmShowNote(); return true;
+  }
+  if (act === "dmremoveyes") {
+    const x = trip.days.find(y => y.id === t.dataset.id); dmOpen = null;
+    const why = removeDay(x); if (why) dmNote = { text: `Not removed: ${why}.`, warn: true };
+    render(); dmShowNote(); return true;
+  }
+  return false;
+}
+// Test hook (tools/ui/day-moves-check.cjs): each day as the check needs it.
+if (typeof window !== "undefined") window.__kairouteDayMoves = () => trip.days.map((d, i) => { const o = {}; for (const k in d) if (!DM_PLAN.includes(k) && k !== "ready" && k !== "askReady" && typeof d[k] !== "function") o[k] = d[k];
+  return { i, id: d.id, date: d.date, type: d.type, place: dmPlace(d), picks: dmPicks(d).slice(), names: dmPicks(d).map(id => dmName(d, id)), ready: !!d.ready, title: d.title || "", fixed: JSON.stringify(o), active: i === trip.active }; });
+// Test hook: the sights of a day's place that are shut on any of the given days (by the app's one hours reader).
+if (typeof window !== "undefined") window.__kairouteDayMovesShut = (idx) => { const ds = idx.map(i => trip.days[i]), c = cityFor(ds[0]); if (!c) return [];
+  return allSites(c).map(x => ({ id: x.id, name: x.name, shut: ds.map(d => !!shutOn(d, x)) })).filter(x => x.shut.some(Boolean)); };
 // ---------- Pick the day's hours on the Day plan (Richard, Nov 16) ----------
 // The time tile at the top of the Day plan ("09:30–18:30, 8 h sightseeing") opens a start and an end time, so the
 // traveler sets the real hours in a couple of taps. Light / Half / Full stay as quick presets. The times stay inside
@@ -19007,7 +19192,8 @@ function stayLabel(hit, typed) {
   return say(addr || nm || typed);
 }
 async function findHotelNoAI(name, d) {
-  if (!freeAI || !name) return null;
+  if (!name) return { none: true };
+  if (!freeAI) return { failed: true };   // the map search can't be reached: never said as "not found"
   try {
     const r = await fetch(freeAI.url + "/findplace?city=" + encodeURIComponent(bareName(d.destination)) + "&q=" + encodeURIComponent(name)); if (!r.ok) return { failed: true };
     const j = await r.json(), list = (j && j.places) || [], hit = stayPick(name, list);
@@ -22498,7 +22684,7 @@ function tripNeeds() {
     const stay = d.type === "land" || (d.type === "arrival" && !throughTo(d) && !(d.mode === "ship" && i === trip.days.length - 1)) || (d.type === "departure" && !throughFrom(d));
     const k = cityKeyFor(d) || keyOf(d.destination || "");
     if (stay && k && !seenHotel[k]) { seenHotel[k] = 1; const L = trip.lodging && trip.lodging[k];
-      if (!L || (L.idx === "custom" && !(L.ll && KEngine.fin(L.ll.lat)))) out.push({ i, f: "f-lodging", what: L && L.idx === "custom" && L.name ? `Where ${L.name} is in ${place} (not found on the map yet)` : `Your hotel in ${place}` }); }
+      if (!L || (L.idx === "custom" && !(L.ll && KEngine.fin(L.ll.lat)))) out.push({ i, f: "f-lodging", what: L && L.idx === "custom" && (L.typed || L.name) ? `Where ${L.typed || L.name} is in ${place} (${L.failed && window.__kairoutePlant !== "stay-down-label" ? "not placed on the map yet: the map search didn't answer" : L.miss ? "not found on the map" : "not placed on the map yet"})` : `Your hotel in ${place}` }); }
   });
   return out;
 }
@@ -22674,7 +22860,7 @@ function tsBuild() {
       const k = cityKeyFor(d) || keyOf(d.destination), was = trip.lodging[k];
       trip.lodging[k] = { idx: "custom", name: h.name, ll: null };
       await geocodeLodging(d);
-      if (!trip.lodging[k].ll) { trip.lodging[k] = was || { idx: 0 }; aiError = `I couldn't find "${h.name}" on the map, so ${bareName(h.place)} days start from the city centre. Tap a ${bareName(h.place)} day to try the full name or street.`; save(); render(); }
+      if (!trip.lodging[k].ll) { aiError = trip.lodging[k].failed ? `The map search didn't answer, so "${h.name}" isn't placed yet and ${bareName(h.place)} days start from the city centre. Tap a ${bareName(h.place)} day and Find it to try again.` : `I couldn't find "${h.name}" on the map, so ${bareName(h.place)} days start from the city centre. Tap a ${bareName(h.place)} day to try the full name or street.`; trip.lodging[k] = was || { idx: 0 };  save(); render(); }
     }
   })();
 }
@@ -23555,7 +23741,11 @@ if (typeof window !== "undefined" && window.ENGINE2 && window.KEngine) (function
         if (x.pierName) leg.pier = x.pierName; if (x.from) leg.from = x.from; if (x.to) leg.to = x.to; if (x.options) leg.options = x.options;
         if (x.ans) leg.transit = x.ans; if (x.steps) leg.steps = x.steps; if (x.note) leg.note = x.note; if (x.lost) leg.lost = x.lost; if (x.slack) leg.slack = x.slack; if (x.swapWhy) leg.swapWhy = x.swapWhy; if (x.ownBoat) leg.ownBoat = x.ownBoat;
         // R-18: a ride by road because no lines have come in yet (the lookup not answered, the helper busy, no signal) says so.
-        if (leg.kind === "car" && x.from && x.to && !x.ans && (x.options || []).every(o => !o.ans && ["car", "walk"].includes(UIKIND[o.kind] || "car"))) { const s = transitAsking(x.from, x.to); if (s && noAnswer(x.from, x.to)) leg.asking = s; }
+        // A ride that offers only the map's own lines (a train line from the places file) with no timetable answer yet says
+        // so too: more ways, a boat among them, may come (Nov 28 live check: Naples to Sorrento showed the train and taxi,
+        // no ferry, and said nothing while the helper answered "too many requests").
+        if (x.mode !== "walk" && x.mode !== "boat" && x.mode !== "lift" && x.from && x.to && !x.ans && (x.options || []).every(o => !o.ans)) { const s = transitAsking(x.from, x.to);
+          if (s && noAnswer(x.from, x.to)) { leg.asking = s; if (leg.kind !== "car" || (x.options || []).some(o => !["car", "walk"].includes(UIKIND[o.kind] || "car"))) leg.askingLines = true; } }
         // Every way for this ride is a choice on the plan (the ride chips): a tap saves it as the traveler's own choice for
         // this ride, and the engine plans with it.
         if (x.from && x.to && x.options && x.options.length > 1) {
@@ -23620,4 +23810,4 @@ render();
 
 </script>
 <script>if ("serviceWorker" in navigator) addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));</script>
-<script>(function(){var B="669f1885-1795856716";function ep(v){return +String(v).split("-").pop()||0}function busy(){return document.body&&document.body.classList.contains("touring-on")}function chk(){if(location.protocol!=="https:"||document.visibilityState!=="visible")return;fetch("version.txt",{cache:"no-store"}).then(function(r){return r.ok?r.text():""}).then(function(t){t=t.trim();if(!t||t===B||ep(t)<=ep(B)||busy())return;var k="kairoute.reloadedTo",s="";try{s=sessionStorage.getItem(k)||"";sessionStorage.setItem(k,t)}catch(e){}if(s===t){var u=new URL(location.href);if(u.searchParams.get("v")===t)return;u.searchParams.set("v",t);location.replace(u.href)}else location.reload()}).catch(function(){})}addEventListener("load",chk);addEventListener("pageshow",function(e){if(e.persisted)chk()});addEventListener("focus",chk);document.addEventListener("visibilitychange",chk);setInterval(chk,300000);if(navigator.serviceWorker)navigator.serviceWorker.addEventListener("message",function(e){if(e.data&&e.data.type==="kairoute-sw"){try{e.source.postMessage({type:"kairoute-alive"})}catch(x){}chk()}})})();</script>
+<script>(function(){var B="493345dc-1795862302";function ep(v){return +String(v).split("-").pop()||0}function busy(){return document.body&&document.body.classList.contains("touring-on")}function chk(){if(location.protocol!=="https:"||document.visibilityState!=="visible")return;fetch("version.txt",{cache:"no-store"}).then(function(r){return r.ok?r.text():""}).then(function(t){t=t.trim();if(!t||t===B||ep(t)<=ep(B)||busy())return;var k="kairoute.reloadedTo",s="";try{s=sessionStorage.getItem(k)||"";sessionStorage.setItem(k,t)}catch(e){}if(s===t){var u=new URL(location.href);if(u.searchParams.get("v")===t)return;u.searchParams.set("v",t);location.replace(u.href)}else location.reload()}).catch(function(){})}addEventListener("load",chk);addEventListener("pageshow",function(e){if(e.persisted)chk()});addEventListener("focus",chk);document.addEventListener("visibilitychange",chk);setInterval(chk,300000);if(navigator.serviceWorker)navigator.serviceWorker.addEventListener("message",function(e){if(e.data&&e.data.type==="kairoute-sw"){try{e.source.postMessage({type:"kairoute-alive"})}catch(x){}chk()}})})();</script>
