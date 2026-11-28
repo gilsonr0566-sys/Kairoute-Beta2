@@ -167,6 +167,14 @@ input[type=text], input[type=date], input[type=time], input[type=number], select
 .tsleg { border: 1px solid var(--line); border-radius: var(--r, 14px); padding: 12px 14px; display: grid; gap: 10px; margin: 0 0 12px; background: var(--paper); }
 .tshead { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
 .tsport { border-left: 3px solid var(--route); padding: 2px 0 2px 12px; display: grid; gap: 6px; }
+/* R-41: a detail the plan needs, still empty once asked; the list of them (setup and the Trip page) */
+.field input[aria-invalid="true"], .seg[aria-invalid="true"] { border-color: var(--warn); box-shadow: 0 0 0 1px var(--warn); }
+.tsneed { border-left: 4px solid var(--warn); display: grid; gap: 8px; margin: 0 0 12px; }
+.tsneed h3 { margin: 0; }
+.tsneedlist { margin: 0; }
+.timeask .field { max-width: 280px; width: 100%; margin: 8px auto 0; text-align: left; }
+.timeask .actions { justify-content: center; }
+.tsneedlist .linkbtn { text-align: left; font-weight: 600; text-decoration: underline; text-underline-offset: 3px; }
 .tsrow { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
 .tsprev ul { margin: 8px 0 0; }
 @media (max-width: 460px) { .row2 { grid-template-columns: 1fr; } }
@@ -2788,7 +2796,7 @@ if (typeof module !== "undefined") module.exports = KEngine;
       // morning, planned with a hotel check-in, a museum before it opened and a dinner).
       if (d.lastDay && d.stayGuess) return E.fail("This is your last day. Add how you leave and when (your flight or train home) on the Trip page, or your hotel if you're staying on, and the day is planned around it: nothing is planned on a guess.", { unsure: true, askLeave: true });
       // No arrival time given: asked, never planned on a time the app made up (Round 1, Nov 20: "Flight in at 10:30 am" on 12 of 15 cruises).
-      const askArrive = mode => E.fail(`When does your ${(E.MODES[mode] || E.MODES.flight).label.toLowerCase()} arrive? Add the time on the Trip page and the day is planned around it: nothing is planned on a guess.`, { unsure: true, askArrive: true });
+      const askArrive = mode => E.fail(`When does your ${(E.MODES[mode] || E.MODES.flight).label.toLowerCase()} arrive? Add the time from your booking and the day is planned around it: nothing is planned on a guess.`, { unsure: true, askArrive: true });
       if (d.timeGuess) return askArrive(d.mode);
       if (!L) return E.fail("Choose where you're staying."); if (!P) return E.fail("Choose your arrival point.");
       const m = E.MODES[d.mode] || E.MODES.flight;
@@ -2803,6 +2811,9 @@ if (typeof module !== "undefined") module.exports = KEngine;
       w.sightFrom = w.start + chain(w.head, tr); w.endBy = Math.max(w.sightFrom, Math.min(23 * 60, lunchIn(w.sightFrom, d.hours)));
     } else if (d.type === "departure" || d.type === "embark") {
       const ship = d.type === "embark", m = ship ? E.MODES.ship : E.MODES[d.mode] || E.MODES.flight;
+      // No leaving time given (the trip builder filled in a typical one): asked, never planned on, the same as an arrival
+      // time (R-41, Nov 27): a "leave by" worked out from a made-up time looks as real as one from the booking.
+      if (!ship && d.leaveGuess) return E.fail(`When does your ${m.label.toLowerCase()} leave? Add the time from your booking and the day is planned around it, with the time to leave by: nothing is planned on a guess.`, { unsure: true, askLeaveTime: true });
       if (!P) return E.fail(ship ? "Choose the cruise port." : "Choose your departure point.");
       const end = Object.assign({}, P, { deadline: true }, d.noBags ? {} : { bags: true }); // reached from the bags, with them
       // Boarding: at the terminal by the boarding time, and never later than an hour before all aboard.
@@ -2814,7 +2825,7 @@ if (typeof module !== "undefined") module.exports = KEngine;
       if (unknownBorder) w.borderUnknown = true; else if (border && border > m.need) w.borderNeed = border;
       if (ship) { w.boardAt = d.boardAt; w.latest = latest; }
       if (d.thru) { // off a ship, plane or train and leaving the same day: bags in storage near where you arrive
-        if (d.thru.guess) return E.fail(`When does your ${(E.MODES[d.thru.mode] || E.MODES.flight).label.toLowerCase()} arrive? Add the time on the Trip page and the day is planned around it, with the time to get to ${d.type === "embark" ? "the ship" : "your next ride"}: nothing is planned on a guess.`, { unsure: true, askArrive: true });
+        if (d.thru.guess) return E.fail(`When does your ${(E.MODES[d.thru.mode] || E.MODES.flight).label.toLowerCase()} arrive? Add the time from your booking and the day is planned around it, with the time to get to ${d.type === "embark" ? "the ship" : "your next ride"}: nothing is planned on a guess.`, { unsure: true, askArrive: true });
         const am = E.MODES[d.thru.mode] || E.MODES.flight, A = d.thru.point; if (!A) return E.fail("Choose where you arrive.");
         w.start = E.toMin(d.thru.time) + am.clear; w.through = true;
         w.head = d.noBags ? [A] : [A, fixed(A, "Leave your bags in luggage storage", 15)];
@@ -4195,7 +4206,7 @@ if (typeof module !== "undefined") module.exports = KEngine;
       const d = days[i];
       if (d.noShore || d.type === "sea") return { plan: { i, error: "At sea or staying aboard: no time ashore." } };
       const win = wins[i], tr = win && win.hard ? trHard() : trAll;
-      if (win.error) return { plan: Object.assign({ i, error: win.error }, win.askNight ? { askNight: true, depAt: win.depAt } : {}) };
+      if (win.error) return { plan: Object.assign({ i, error: win.error }, win.askNight ? { askNight: true, depAt: win.depAt } : {}, win.askArrive ? { askArrive: true } : {}, win.askLeaveTime ? { askLeaveTime: true } : {}) };
       const city = guides[d.city];
       if (!city) return { plan: { i, error: "no guide" } };
       const listed = (city.sites || []).map((s, k) => Object.assign({}, s, { rank: k })).concat((city.farther || []).map(s => Object.assign({}, s, { far: true })));
@@ -7519,6 +7530,18 @@ function transitFor(a, b) {
   if (typeof freeAI !== "undefined" && freeAI && !transitQ.has(k) && !(transitFail.get(k) > Date.now() - 120000)) { transitQ.set(k, { a: [+a.lat, +a.lng], b: [+b.lat, +b.lng], dow, date: typeof planDate !== "undefined" && planDate ? planDate : undefined, pri: typeof trip !== "undefined" && trip.days && trip.days[trip.active] && typeof planDate !== "undefined" && trip.days[trip.active].date === planDate }); clearTimeout(transitTimer); transitTimer = setTimeout(askTransit, 300); }
   return hit ? part(borrowGap(a, b, hit, exact, hit.opts.filter(runsThen).map(tidyRide))) : null;
 }
+// A ride with no answer at all yet from the ride lookup (not asked yet, asked and waiting, or the helper busy or out of
+// reach): the day says so on the ride, so a road estimate is never shown as if it were every way to go (R-18; Nov 27
+// live check: with the helper answering "too many requests" the Sorrento ferry choice vanished without a word). An
+// answer that came back with no lines is an answer: nothing is said then.
+function transitAsking(a, b) {
+  if (!a || !b || !KEngine.fin(a.lat) || !KEngine.fin(b.lat) || hav(a, b) < 1.5) return "";
+  const k = pairKey(a, b) + "|" + dayKind(planDow());
+  if (transitMem[k] || transitMem[pairKey(a, b)]) return "";
+  // No helper address (it couldn't be reached at start-up): the lines can't be asked for at all, and the day says so
+  // too (the gate's runners have no helper: the ride was silent there).
+  return typeof navigator !== "undefined" && navigator.onLine === false ? "offline" : typeof freeAI === "undefined" || !freeAI ? "unreached" : "waiting";
+}
 function transitDue(exact, hit) {
   if (typeof navigator !== "undefined" && navigator.onLine === false) return false;
   if (!exact) return true;
@@ -7706,7 +7729,8 @@ function rideExtra(leg) {
   // Each sentence once a day: the ride out and the ride back carry the same guide's words (UI check, Nov 20).
   const said = leg.note ? String(leg.note).split(/(?<=[.!?])\s+(?=[A-Z])/).map(rideOnce).filter(Boolean).join(" ") : "";
   const note = said ? `<span class="sub ridesub ridenoteguide">${esc(said)}</span>` : "";
-  return steps + lost + note;
+  const wait = leg.asking ? `<span class="sub ridesub ridewait">${leg.asking === "offline" ? "With no signal, trains, buses and boats for this ride can't be looked up, so for now it's planned by road. The day updates when you're back online." : leg.asking === "unreached" ? "Kairoute can't reach its ride lookup right now, so trains, buses and boats for this ride aren't known and it's planned by road. Check other ways to go before you set out." : "Trains, buses and boats for this ride haven't come in yet, so for now it's planned by road. The day updates on its own when they do."}</span>` : "";
+  return steps + lost + note + wait;
 }
 // The same general line under every ride ("By road, with time for traffic.") is said once a day, on the first ride
 // it applies to (UI check, Nov 20: it repeated under every taxi of the day). renderPlan starts each day afresh.
@@ -7757,7 +7781,7 @@ function rideLeg(a, b, road, lastMile, walkMin) {
   let opts = transitFor(a, b);
   // No line found: the ride is a taxi, and says so (not "Taxi, bus or metro", not "Train or car": the label never names
   // a way to go that has no button, Richard Nov 17); a short one can be walked instead.
-  if (!opts || !opts.length) return Object.assign({}, road, { how: "Taxi or car", key: pairKey(a, b), choice: "taxi", road: road.min, lastMile, choices: [...walk, { id: "taxi", label: "Taxi or car", min: road.min, kind: "car" }] });
+  if (!opts || !opts.length) { const asking = transitAsking(a, b); return Object.assign({}, road, { how: "Taxi or car", key: pairKey(a, b), choice: "taxi", road: road.min, lastMile, choices: [...walk, { id: "taxi", label: "Taxi or car", min: road.min, kind: "car" }] }, asking ? { asking } : {}); }
   // Leaving the ship for the first ride you go when the boat or train goes: with no timetable, plan on half the gap
   // between sailings plus boarding rather than a full gap (a full gap stays on every ride that must catch one later,
   // and on the ride back to the ship).
@@ -8092,7 +8116,7 @@ function lodgingFor(d, city) {
   const k = cityKeyFor(d) || keyOf(d.destination);
   const L = trip.lodging[k] || { idx: 0 };
   const real = v => v !== null && v !== "" && KEngine.fin(v) && +v !== 0;
-  if (L.idx === "custom" && L.ll && real(L.ll.lat) && real(L.ll.lng)) return { name: String(L.name || "").trim() || "Your hotel", lat: +L.ll.lat, lng: +L.ll.lng };
+  if (L.idx === "custom" && L.ll && real(L.ll.lat) && real(L.ll.lng)) return { name: L.how === "street" ? "your stay on " + String(L.name || "").trim() : String(L.name || "").trim() || "Your hotel", lat: +L.ll.lat, lng: +L.ll.lng };
   const list = pointList(city, "hotel");
   // A hotel typed in (or brought in with a trip) that the map hasn't placed yet never blanks the day (Richard's
   // boarding day, Nov 19: "Choose where you're staying" and nothing else). The day starts from the guide's first
@@ -8127,6 +8151,9 @@ function dayPoint(d, city) {
   // Nothing picked yet: the first listed airport that is a real one, never a terminal or a closed field listed before it.
   if (notAir(p) && !d.pointPicked && !(d.pointIdx > 0)) p = list.find(x => !x.unknown && !notAir(x)) || p;
   // More than one real station or airport and the traveler hasn't said which: asked, never guessed (Nov 20 tester).
+  // The traveler named the airport or station when making the trip and it isn't found yet (not in the guide's list, not
+  // on the map): the day is never planned from another one in its place (R-41). It asks, with their name filled in.
+  if (d.gateWant && !d.pointPicked && !(d.pointIdx > 0) && (listKey === "airport" || listKey === "station")) return { name: String(d.gateWant), lat: p ? p.lat : null, lng: p ? p.lng : null, unknown: true, gateWant: true };
   const ask = pointAsk(d, list, listKey);
   return p && ask ? Object.assign({}, p, { ask }) : flag(p);
 }
@@ -8142,6 +8169,9 @@ function planErrCard(d, plan) {
   const err = plan ? plan.error : "Set up your day first.", ch = plan ? pointChoices(d, cityFor(d)) : [];
   // A flight or train in the small hours: this morning or tonight, one tap each (kept on the day as d.nightDep).
   if (plan && plan.askNight) return `<div class="card empty nightask"><p>${esc(err)}</p><div class="actions"><button class="btn ghost" data-act="nightdep" data-v="morning">Early this morning</button><button class="btn ghost" data-act="nightdep" data-v="night">Late tonight, after midnight</button></div></div>`;
+  // A flight, train or ferry time not given yet (R-41): typed right here, one field and one tap, never guessed.
+  if (plan && (plan.askArrive || plan.askLeaveTime)) { const to = plan.askArrive && throughFrom(d) ? throughFrom(d) : d, i = trip.days.indexOf(to);
+    return `<div class="card empty timeask"><p>${esc(err)}</p><div class="field"><label for="askTimeIn">Time on your booking</label><input type="time" id="askTimeIn" value=""></div><div class="actions"><button type="button" class="btn" data-act="asktime" data-i="${i}">Save the time</button></div></div>`; }
   if (!ch.length) return `<div class="card empty"><p>${esc(err)}</p><button class="btn" data-goto="trip">Edit this day</button></div>`;
   return `<div class="card empty pointask"><p>${esc(String(err).replace(/ Choose it in the day's settings[^:]*:/, " Choose yours:"))}</p><div class="actions">${ch.map(c => `<button class="btn ghost" data-act="pointpick" data-idx="${c.idx}">${esc(c.name)}</button>`).join("")}</div></div>`;
 }
@@ -8870,7 +8900,7 @@ async function pierSearch() {
   render();
 }
 function pierFormHTML(d) {
-  const f = pierForm && pierForm.id === d.id ? pierForm : { q: "", results: [] }, W = ASK_WORDS[askKind(d) || "cruise"];
+  const f = pierForm && pierForm.id === d.id ? pierForm : { q: d.gateWant || "", results: [] }, W = ASK_WORDS[askKind(d) || "cruise"];
   // The place the day had is no airport with passenger flights: said plainly, before asking for the real one.
   const P = askKind(d) === "airport" ? dayPoint(d, cityFor(d)) : null, why = P && P.notGate ? `<p class="banner warn" role="status">${esc(notGateMsg(P))}</p>` : "";
   return `<div class="card bookform" id="pierform"><h3>${W.h}</h3>${why}<p class="lede small">${W.lede}</p>
@@ -10815,6 +10845,13 @@ async function buildAllGuides() {
   if (missed.length) aiError = notFoundMsg(missed, buildAgain(missed.length));
   busy = null; render();
 }
+// What the stay field says once the place is found (R-38): which place, and how sure: by its name, at its door, or
+// only its street (the number not on the map), never more than the map said.
+function stayFoundLine(L) {
+  if (L.how === "street") return "Found the street on the map, not number " + esc((L.nums || []).join(" ") || "you typed") + ": your days start from " + esc(L.name) + ". Add a nearby landmark for the exact door.";
+  if (L.how === "door") return "Found on the map: " + esc(L.name) + ".";
+  return "Found on the map: " + esc(L.name) + ".";
+}
 async function geocodeLodging(d) {
   const k = cityKeyFor(d) || keyOf(d.destination);
   const L = trip.lodging[k];
@@ -10822,8 +10859,10 @@ async function geocodeLodging(d) {
   if (!aiReady()) { // no AI: the map's own search finds the hotel by name
     if (!freeAI) return;
     busy = { text: "Finding " + L.name + "…" }; render();
-    const h = await findHotelNoAI(L.name, d); busy = null;
-    if (h) { L.ll = { lat: h.lat, lng: h.lng }; L.name = h.name; save(); } else aiError = "Couldn't find that place on the map. Try the hotel's full name, or add the street.";
+    const typed = L.name, h = await findHotelNoAI(typed, d); busy = null;
+    // R-38: found by name, at its door, or (a short street only) on its street, and the screen says which; else said plainly.
+    if (h && KEngine.fin(h.lat)) { delete L.miss; L.ll = { lat: h.lat, lng: h.lng }; L.typed = typed; L.name = h.name; L.how = h.how; L.nums = h.nums || []; aiError = ""; save(); }
+    else { L.ll = null; L.how = ""; L.typed = typed; aiError = ""; L.miss = h && h.failed ? "The map search didn't answer just now, so " + typed + " isn't placed yet. Tap Find it again in a minute." : "I couldn't find \u201c" + typed + "\u201d in " + bareName(d.destination) + " on the map. Try the name on your booking, or the street and house number. " + (() => { const f = lodgingFor(d, cityFor(d)); return f && f.name ? "Until then your days start from " + f.name + "." : ""; })(); }
     render(); return;
   }
   busy = { text: "Finding " + L.name + "…" }; render();
@@ -11136,7 +11175,7 @@ function toLines(parts) {
   return lines;
 }
 // Quality check for every day of a trip (used by the automated planner test).
-if (typeof window !== "undefined") window.__kairouteLegs = i => { const pl = buildPlan(trip.days[i]); if (!pl || pl.error || !pl.items) return null; return pl.items.filter(x => x.type === "travel").map(x => ({ mode: x.leg.mode, how: x.leg.how, km: x.leg.km, min: x.leg.min, note: x.leg.note || "", choices: (x.leg.choices || []).map(c => c.label + " " + c.min) })); };
+if (typeof window !== "undefined") window.__kairouteLegs = i => { const pl = buildPlan(trip.days[i]); if (!pl || pl.error || !pl.items) return null; return pl.items.filter(x => x.type === "travel").map(x => ({ mode: x.leg.mode, how: x.leg.how, km: x.leg.km, min: x.leg.min, note: x.leg.note || "", asking: x.leg.asking || "", choices: (x.leg.choices || []).map(c => c.label + " " + c.min) })); };
 if (typeof window !== "undefined") window.__kairouteCrossings = () => trip.days.map((d, i) => { let r = window.__kairouteRoute(i); if (!r) return 0; r = r.filter(x => x.type !== "evening"); const h = r.findIndex(x => x.type === "stop" || x.type === "meal"); if (h > 0) r = r.slice(h - 1); if (r.length < 4) return 0; return crossCount(r[0], r.slice(1, -1), r[r.length - 1]); }); // the part the planner orders: from where the day's sights begin (after a bag drop) to the end point, without the evening dinner
 if (typeof window !== "undefined") window.__kairouteRoute = i => { bonusMemo = new Map(); mealMemo = new Map(); keptMemo = new Map(); eveMemo = new Map(); avoidMeals = new Set(); const pl = buildPlan(trip.days[i]); if (!pl || pl.error || !pl.items) return null;
   return pl.items.filter(x => x.place && x.type !== "travel").map(x => ({ type: x.type, name: x.place.name, lat: +x.place.lat, lng: +x.place.lng, time: x.time, min: x.place.minutes || 0, hours: x.place.hours || "", leg: x.leg ? (x.leg.how || x.leg.mode) : "" })); };
@@ -12831,8 +12870,9 @@ function gettingAround(city, plan) {
 function dayMeta(x) {
   if (x.type === "port" && x.aboard) return "Staying on board";
   if (x.type === "port") return `Ashore ${x.portArrive}, all aboard ${x.allAboard}${x.tender ? " · tender" : ""}`;
-  if (x.type === "arrival") return `${MODES[x.mode].label} arrives ${x.time || "?"}`;
-  if (x.type === "departure") return `${MODES[x.mode].label} leaves ${x.time || "?"}`;
+  // A time the traveler hasn't given is never shown as theirs (R-41): said as not given yet, never the typical time.
+  if (x.type === "arrival") return x.estimated || !x.time ? `${MODES[x.mode].label} arrives: time not given yet` : `${MODES[x.mode].label} arrives ${x.time}`;
+  if (x.type === "departure") return x.estimated || !x.time ? `${MODES[x.mode].label} leaves: time not given yet` : `${MODES[x.mode].label} leaves ${x.time}`;
   if (x.type === "embark") return `All aboard ${x.allAboard}`;
   if (x.type === "sea") return "No stops";
   return `${x.startTime}–${fmt(lunchIn(toMin(x.startTime), +x.hours))}`; // the same hours the Day plan shows (its window, lunch included)
@@ -12848,7 +12888,7 @@ function itinerary() {
     out += `<button class="itrow ${i === trip.active ? "active" : ""}" data-day="${i}">
       <span class="dt">${esc(fmtDate(x.date))}</span>
       <span class="ic ${x.type}" aria-hidden="true">${typeInfo(x.type).icon}</span>
-      <span class="tx"><b>${esc(placeLabel(x) || "New day")}</b><span>${esc(typeInfo(x.type).short)} · ${esc(dayMeta(x))}${x.estimated ? " · estimated" : ""}</span>${built ? "" : `<span class="ok" style="display:block;color:var(--meal);font-weight:700">Guide not built yet</span>`}</span>${heartDot(x)}
+      <span class="tx"><b>${esc(placeLabel(x) || "New day")}</b><span>${esc(typeInfo(x.type).short)} · ${esc(dayMeta(x))}${x.estimated && x.type !== "arrival" && x.type !== "departure" ? " · estimated, not from your booking" : ""}</span>${built ? "" : `<span class="ok" style="display:block;color:var(--meal);font-weight:700">Guide not built yet</span>`}</span>${heartDot(x)}
     </button>`;
   });
   return out;
@@ -12868,7 +12908,8 @@ function renderTrip(d) {
   return `
   ${trip.sample && !trip.bannerSeen ? `<div class="banner"><span>${trip.example ? "This is an example trip, to show how Kairoute works: Athens, the 11-night Sun Princess cruise from Piraeus on July 4, 2027, then Barcelona and Madrid. Its flight, hotel and train times are examples. Tap a day to change it, or plan your own trip from Home." : `This is your Sun Princess trip: Athens, the 11-night cruise from Piraeus on July 4, 2027, then Barcelona and Madrid. Ports and times come from your booking; all-aboard is set 30 minutes before sailing. Flight, hotel and train times are my guesses, so tap a day to change them.`}</span><button class="btn ghost small" data-act="gotit" style="white-space:nowrap">Got it</button></div>` : ""}
   ${stopsBanner()}
-  ${shipTimesBanner()}
+  ${tripNeedsHTML()}
+  ${aiReady() || trip.sample || !tripNeeds().length ? shipTimesBanner() : ""}
   ${changeCard()}
   <div class="tripgrid">
     <div class="leftcol pane" data-pane="days">
@@ -12912,10 +12953,11 @@ function renderTrip(d) {
           ${t === "land" || t === "departure" || t === "embark" ? `<div class="field"><label for="f-start">${t === "land" ? "Start time" : "Check out at"}</label><input type="time" id="f-start" value="${esc(d.startTime)}"></div>` : ""}
           ${""/* the day's hours are set in one place, the Day plan's hours tile (outside review, Nov 20: two controls, two answers) */}
         </div>
+        ${d.estimated && t !== "land" && t !== "sea" ? `<label class="check"><input type="checkbox" id="f-confirm"><span>${t === "port" ? "These are the times on my cruise booking" : "This is the time on my booking"}</span></label><span class="hint">Not from your booking yet, so not confirmed. Type the real ${t === "port" ? "times" : "time"}, or tick this if ${t === "port" ? "they're" : "it's"} already right.</span>` : ""}
         ${needsLodging ? `<div class="field"><label for="f-lodging">Where you're staying in ${esc(d.destination || "this city")}</label>
           <select id="f-lodging">${opts(hotels, L.idx)}<option value="custom" ${L.idx === "custom" ? "selected" : ""}>My hotel or rental…</option></select>
-          ${L.idx === "custom" ? `<div class="ask"><input type="text" id="f-lname" value="${esc(L.name || "")}" placeholder="Hotel name or address"><button type="button" class="btn small" data-act="geo" ${aiReady() || freeAI ? "" : "disabled"}>Find it</button></div>
-          <span class="hint">${L.ll ? "Found on the map: " + esc(L.name) : aiReady() || freeAI ? "Type the name and tap Find it." : (typeof navigator !== "undefined" && navigator.onLine === false ? "Pick an area for now. Finding your exact hotel needs the internet." : "Pick an area for now. Finding your exact hotel isn't possible just now; try again in a few minutes.")}</span>` : `<span class="hint">Used for every day you're in ${esc(d.destination || "this city")}.</span>`}
+          ${L.idx === "custom" ? `<div class="ask"><input type="text" id="f-lname" value="${esc(L.typed || L.name || "")}" placeholder="Hotel name or address"><button type="button" class="btn small" data-act="geo" ${aiReady() || freeAI ? "" : "disabled"}>Find it</button></div>
+          <span class="hint" role="status" data-stay="${L.ll ? L.how || "place" : "none"}">${L.ll ? stayFoundLine(L) : L.miss ? esc(L.miss) : aiReady() || freeAI ? "Type the name and tap Find it." : (typeof navigator !== "undefined" && navigator.onLine === false ? "Pick an area for now. Finding your exact hotel needs the internet." : "Pick an area for now. Finding your exact hotel isn't possible just now; try again in a few minutes.")}</span>` : `<span class="hint">Used for every day you're in ${esc(d.destination || "this city")}.</span>`}
         </div>` : ""}
         <details class="more dayopts" ${d.event ? "open" : ""}><summary>More options for this day</summary>
         ${t === "port" ? `<label class="check"><input type="checkbox" id="f-stayaboard" ${d.aboard ? "checked" : ""}><span>Staying on board this day (not going ashore)</span></label>` : ""}
@@ -13981,7 +14023,7 @@ ${partsList(s, it.time)}${stopLiveNotes(it, d)}</div></div>`;
     (tc => tc ? `<div class="banner warn" role="alert">This day has ${dur(tc.ride)} of travel for ${dur(tc.see)} at the sights. Consider fewer far-apart stops, more hours, or splitting it over two days.</div>` : "")(travelCheck(plan)),
     plan.endBy - plan.start < 90 ? `<div class="banner warn">There isn't much time today, so keep it close: a coffee and one nearby sight at most.</div>` : "",
     weatherBanner(d, plan),
-    d.estimated ? `<div class="banner warn">These port times are estimated. Check them against your cruise documents.</div>` : "",
+    estLine(d) ? `<div class="banner warn">${esc(estLine(d))}</div>` : "",
     (e => e ? `<div class="banner ok"><span>Leave at <b>${e.start}</b> instead of ${esc(d.startTime)} and ${e.fits.length ? `you also fit <b>${e.fits.map(esc).join(", ")}</b>` : "the day fits"}, back by ${e.end}. Earlier also means cooler weather, less traffic and fewer crowds.</span><button class="btn small" data-act="earlystart" data-v="${e.start}" data-h="${e.hours}">Leave at ${e.start}</button></div>` : "")(earlierStart(d, plan)),
     laterEndBanner(d, plan), elsewhereNote(plan),
     // A place nobody has opened before: its sights and travel guides take a minute or more to gather the first time (R-34;
@@ -14005,7 +14047,7 @@ ${partsList(s, it.time)}${stopLiveNotes(it, d)}</div></div>`;
     <div><b>${stopsN}${optN ? " + " + optN : ""}</b><span>${stopsN === 1 ? "sight" : "sights"}${optN ? (added ? " + added by Kairoute" : " + optional") : ""}${plan.along.length && !optN ? ` · ${plan.along.length} on the way` : ""}</span></div>
     ${walkTile ? `<div><b>${distTxt(plan.walkKm)}</b><span>walking</span></div>` : ""}
     ${cdHTML ? "" : `<div><b>${fmt(plan.end)}</b><span>${d.type === "port" ? "back on board" : "last stop done"}</span></div>`}
-    <div class="daytools"><div class="toolrow"><button class="btn ghost small" data-goto="sites">Choose sights</button>
+    <div class="daytools"><div class="toolrow"><button class="btn ghost small" data-goto="sites">Choose sights</button>${gtBtnHTML()}
     <details class="moremenu planmore"><summary aria-label="More options for today">More</summary><div class="menupanel" role="menu">
       <div class="menugroup">Plan this day</div>
       <button class="menuitem" role="menuitem" data-act="suggesttour">✨ Suggest my tour</button>
@@ -14135,7 +14177,7 @@ function renderGuide(d) {
   const cards = cur ? stopCard(cur.s, cur.num, city, cur.t) + `<div class="stopnav">${navBtn(prv, "prev")}${navBtn(nxt, "next")}</div>` : "";
   const jumps = stops.map(x => `<button type="button" class="chip ${x === cur ? "on" : ""}" data-jump="${esc(x.s.id)}" aria-pressed="${x === cur}"><b>${x.num || (x.s.bonus ? "+" : "•")}</b> ${x.s.bonus ? "Optional: " : ""}${esc(x.s.name)}</button>`).join("");
   // Same head as the Day plan (docs/design-rules.md): day name, the ship countdown, one main action. The stop list is the picker.
-  return `${pageHead(d, plan, [camBtnHTML()], tourBtnHTML())}
+  return `${pageHead(d, plan, [gtBtnHTML(), camBtnHTML()], tourBtnHTML())}
     <div class="guidegrid"><div class="guideside pane" data-pane="side">
     ${jumps ? `<nav class="jumps" aria-label="Jump to a stop">${jumps}</nav>` : ""}</div>
     <div class="guidemain pane" data-pane="stories">${cards ? `<div class="stoplist">${cards}</div>` : guideNoStops(d, plan)}</div></div>`;
@@ -14223,7 +14265,7 @@ function renderTour(d) {
   // train and flight days (the same one as on the Day plan), and the two small tools. Follow me sits just below.
   const head = `<div class="tourhead"><div class="tourwhere"><div class="eyebrow">Tour · ${esc(dayName(d))} · ${esc(fmtDate(d.date))}</div>
       <div class="tourbar"><i style="width:${pct}%"></i></div><div class="lede small">Step ${T.i + 1} of ${steps.length} · planned for ${fmt(st.time)}</div></div>
-    ${countdownCard(d, plan)}${headActs([camBtnHTML(), `<button class="btn ghost small" data-act="tourexit">Exit tour</button>`])}</div>${followBar()}${groupBar()}`;
+    ${countdownCard(d, plan)}${headActs([gtBtnHTML(), camBtnHTML(), `<button class="btn ghost small" data-act="tourexit">Exit tour</button>`])}</div>${followBar()}${groupBar()}`;
   let body = "";
   if (T.phase === "walk" && st.type !== "start") {
     const nm = stepName(st);
@@ -14401,7 +14443,7 @@ function readForm() {
   if (g("f-time")) { if (d.time !== v("f-time")) delete d.nightDep; d.time = v("f-time"); } // a new time: asked again if it's in the small hours
   if (g("f-parr")) d.portArrive = v("f-parr");
   if (g("f-aboard") && g("f-aboard").type === "time") d.allAboard = v("f-aboard");
-  if (d.estimated && [d.time, d.portArrive, d.allAboard].join("|") !== was) delete d.estimated;
+  if (d.estimated && ([d.time, d.portArrive, d.allAboard].join("|") !== was || (g("f-confirm") && g("f-confirm").checked))) delete d.estimated;
   if (g("f-start")) d.startTime = v("f-start") || "09:00";
   if (g("f-hours")) d.hours = Math.max(1, Math.min(14, parseFloat(v("f-hours")) || 8));
   if (g("f-point")) { const nv = +v("f-point"); if (nv >= 0) { if (g("f-point").dataset.ask === "1") d.pointPicked = true; d.pointIdx = nv; } }
@@ -14414,7 +14456,8 @@ function readForm() {
     const sel = v("f-lodging"), cur = trip.lodging[lk] || {};
     if (sel === "custom") {
       const nm = g("f-lname") ? v("f-lname").trim() : (cur.name || "");
-      trip.lodging[lk] = { idx: "custom", name: nm, ll: cur.idx === "custom" && cur.name === nm ? cur.ll : null };
+      const same = cur.idx === "custom" && (cur.typed || cur.name) === nm;   // the found place stays while the words typed are unchanged
+      trip.lodging[lk] = same ? cur : { idx: "custom", name: nm, ll: null };
     } else trip.lodging[lk] = { idx: +sel };
   }
 }
@@ -14540,7 +14583,7 @@ document.addEventListener("click", e => {
     setTimeout(render, 300); return;
   }
   if (act === "newtrip") { wiz = { step: 0, mode: "steps", legs: [tsStay()], text: "", name: "", style: trip.style || "mix", interests: [], pace: "moderate", walk: "medium", hotels: "", travelers: "", access: "none", party: 2, lang: "English", voice: "buttery", cruiseLine: "", ship: "" }; view = "wizard"; aiError = ""; render(); return; }
-  if (act === "wizmore") { readWiz(); if (wizSteps()) { tsFill(wiz.legs); const err = tsCheck(wiz.legs); if (err) { aiError = err; render(); toTop(); return; } } else if (!wiz.text.trim() && !(wiz.images || []).length) { aiError = "Describe your trip first, even roughly."; render(); return; } aiError = ""; wiz.step = 1; render(); toTop(); return; }
+  if (act === "wizmore") { readWiz(); if (wizSteps()) { tsFill(wiz.legs); const err = tsCheck(wiz.legs); if (err) { aiError = err; render(); toTop(); return; } if (tsAskNeeds("more")) return; } else if (!wiz.text.trim() && !(wiz.images || []).length) { aiError = "Describe your trip first, even roughly."; render(); return; } aiError = ""; wiz.step = 1; render(); toTop(); return; }
   if (act === "wizback") { readWiz(); wiz.step--; render(); return; }
   if (act === "wizcancel") { wiz = null; view = "lobby"; render(); toTop(); return; }
   if (act === "opentrip") { save(); const x = library.find(y => y.id === t.dataset.id); if (x) { trip = x.trip; if (!trip.prefs) trip.prefs = defaultPrefs(); jumpToToday(trip); view = trip.tour && trip.tour.dayId === day().id && cityFor(day()) ? "tour" : "plan"; save(); render(); toTop(); } return; }
@@ -14626,6 +14669,14 @@ document.addEventListener("click", e => {
   if (act === "tourstart") { const d = day(); if (!trip.tour || trip.tour.dayId !== d.id) trip.tour = null; else delete trip.tour.left; curTour(d); view = "tour"; save(); render(); toTop(); return; }
   if (act === "tourexit") { stopAudio(); if (trip.tour) { trip.tour.left = true; save(); } view = "plan"; render(); toTop(); return; }
   if (act === "tourpart") { tourPart(); return; }
+  // "Still needed for your plan" (R-41): one tap opens the day and puts the cursor in the field that takes the detail.
+  if (act === "asktime") { const x = trip.days[+t.dataset.i], v = (document.getElementById("askTimeIn") || {}).value || "";
+    if (x && /^\d\d:\d\d$/.test(v)) { x.time = v; delete x.estimated; delete x.nightDep; trip.tour = null; edited(); save(); render(); } return; }
+  if (act === "needgo") { readForm(); const i = +t.dataset.i; if (trip.days[i]) { trip.active = i; view = "trip"; aiError = ""; save(); render();
+    let el = document.getElementById(t.dataset.f || "");
+    // No list to choose from: the day plan asks for the name (the pier, airport or station form).
+    if (!el && t.dataset.f === "f-point") { view = "plan"; render(); el = document.getElementById("pier-name"); }
+    if (el) { el.scrollIntoView({ block: "center" }); el.focus({ preventScroll: true }); } } return; }
   if (act === "nightdep") { const d = day(), v = t.dataset.v; if (d && (v === "morning" || v === "night")) { d.nightDep = v; edited(); save(); render(); } return; }
   if (act === "pointpick") { const d = day(), k = +t.dataset.idx; if (d && k >= 0) { d.pointIdx = k; d.pointPicked = true; delete d.pier; edited(); save(); render(); } return; }
   if (act === "tournext") {
@@ -16026,7 +16077,7 @@ let sitesCtx = null, fitMemo = { key: "", res: new Map(), add: new Map(), boat: 
 const fitKey = d => { try { return JSON.stringify([trip.days.indexOf(d), d, trip.lodging, trip.prefs, trip.style, fitEpoch]); } catch (e) { return String(Math.random()); } };
 function fitCostOf(plan, s) { if (fitMemo.add.has(s.id)) return { min: fitMemo.add.get(s.id), spare: 0, exact: true }; try { const c = stopCost(plan, s); return { min: c.min, spare: Math.max(0, c.spare) }; } catch (e) { return { min: s.minutes || 45, spare: 0 }; } }
 function timeLeft(plan, d) { const m = meterCalc(plan, d); return m ? { left: Math.max(0, m.avail - m.used), m } : null; }
-const fitWet = s => !!s && (!!s.acrossWater || (typeof KEngine !== "undefined" && (KEngine.byBoat(s.travelNote || s.travel || "") || KEngine.waterOnly(s))));
+const fitWet = s => !!s && (!!s.acrossWater || (typeof KEngine !== "undefined" && typeof KEngine.byBoat === "function" && (KEngine.byBoat(s.travelNote || s.travel || "") || KEngine.waterOnly(s))));
 // A stop reached by boat gets its own check, whatever the fit: does a timetable confirm its boat (fitRefine)? Asked by
 // every card drawn for a sight not picked (the list's own fit marks may come from elsewhere, so not from siteFits).
 function boatAsk(d, s) {
@@ -16107,6 +16158,222 @@ if (typeof window !== "undefined") window.__kairouteFitWhy = (i, id) => { const 
 if (typeof window !== "undefined") window.__kairouteFitTrial = sel => { const d = day(), r = fitTrial(d, sel), p = r.p || {};
   return { fits: fitsAll(r), error: p.error || null, over: !!(r.m && r.m.over), dropped: ((r.m && r.m.dropped) || []).map(x => x.name || String(x)), closed: (p.closedToday || []).map(x => x.name || x.id), noLunch: p.noLunch || null,
     items: (p.items || []).map(x => x.type + ":" + (x.place ? x.place.name : "") + (x.leg ? " (" + x.leg.how + " " + x.leg.min + ")" : "")) }; };
+// ===================== Get there: search any place and how to get there from where you are (rule R-40) =====================
+// Richard, Nov 27: "Can we have some kind of search to help them get around." One search box, on the Day plan, the Guide
+// and the Tour: the traveler types any place (a sight, a station, a restaurant, a street address, their hotel or the
+// ship) and the app shows where it is and every way to get there from where they are now. The rule, for every city:
+//  1. What is found is real: the trip's own places first (the day's start and end: ship, hotel, station, airport; the
+//     guide's sights, day trips and restaurants), with no internet needed; then the map (OpenStreetMap through the
+//     helper's /findplace, the same search and the same answer-picking rule as "Where you're staying", R-38: a named
+//     place, else the door with the number typed, else a short street said as the street). Nothing found is said so.
+//  2. The ways there come from the ONE ride layer the plans use (KEngine.makeTravel through zz-engine2: walks with their
+//     climb, street routes, timetables, the boat across the water, the taxi), never a second calculator. Each way says
+//     where its time comes from; a time no timetable confirms reads "about", never as a fact.
+//  3. On a day with a time to be back (a ship, a train, a plane), the place is checked against it with the same ride
+//     layer and its spare time for the way back: the latest time to leave the place, or plainly that going there now
+//     leaves no time to get back. An estimate is never called confirmed.
+//  4. Every name is in the traveler's language (R-11). No AI, nothing paid.
+let gt = null; // { q, list, map, mapMsg, busy, pick, from, fromKey, msg }
+const GT_MAP_KM = 60; // a map answer farther than this from the day's own place is someone else's
+const gtBtnHTML = () => `<button class="btn ghost small" data-act="gtopen" aria-label="Get there: search any place and how to get there">🧭 Get there</button>`;
+// A real position: a missing or empty one is never read as 0 (+null is 0).
+const gtHas = p => !!p && p.lat != null && p.lat !== "" && p.lng != null && p.lng !== "" && KEngine.fin(Number(p.lat)) && KEngine.fin(Number(p.lng));
+const gtPlant = k => typeof window !== "undefined" && window.__kairoutePlant === k;
+const gtName = x => gtPlant("gt-local-script") ? String((x && x.name) || "") : showName(x);
+function gtDay() { const d = day(); return d && d.type !== "sea" ? d : null; }
+// The day's own places, every one the traveler might want to go back to: where the day starts and ends, the hotel.
+function gtOwnPoints(d, city) {
+  const out = [], w = dayWindowSafe(d, city), add = (p, sub, kind) => { if (p && gtHas(p) && !out.some(o => hav(o, p) < 0.05)) out.push({ name: gtName(p) || sub, lat: +p.lat, lng: +p.lng, sub, kind, own: true }); };
+  if (w && !w.error) { const end = w.tail[w.tail.length - 1];
+    if (end) add(end, end.backToShip ? "Your ship" : end.deadline ? "Where you leave from" : "Where your day ends", end.backToShip ? "ship" : end.deadline ? "leave" : "end");
+    for (const p of w.head) add(p, p.fixed ? "On your way" : "Where your day starts", "start"); }
+  try { add(lodgingFor(d, city), "Where you're staying", "stay"); } catch (e) {}
+  return out;
+}
+// Everything the guide knows in this place (sights, day trips, places to eat), by id.
+function gtGuidePlaces(city) {
+  const out = [];
+  for (const s of allSites(city)) if (gtHas(s)) out.push({ id: s.id, name: gtName(s), lat: +s.lat, lng: +s.lng, sub: txt(s.category) || (s.far ? "Day trip" : "Sight"), kind: s.far ? "trip" : "sight", site: s });
+  for (const r of city.restaurants || []) if (r && !r.generic && gtHas(r)) out.push({ name: gtName(r), lat: +r.lat, lng: +r.lng, sub: txt(r.cuisine) || "Place to eat", kind: "eat" });
+  return out;
+}
+// The traveler's words against a name: every word typed (two letters or more) starts a word of the name, or the R-38
+// likeness rule (typos, most words) holds.
+function gtMatch(q, name, alt) {
+  const w = keyOf(q).split(" ").filter(t => t.length > 1); if (!w.length) return false;
+  for (const n of [name, ...(alt || [])].filter(Boolean)) { const g = keyOf(n).split(" ");
+    if (w.every(t => g.some(x => x.startsWith(t)))) return true; if (typeof stayLike === "function" && stayLike(q, n)) return true; }
+  return false;
+}
+function gtLocal(d, city, q) {
+  const own = gtOwnPoints(d, city), all = own.concat(gtGuidePlaces(city));
+  if (!q.trim()) return own.concat(gtTodayStops(d, city));
+  const ownWords = { ship: /\b(ship|boat|cruise|port|terminal|pier)\b/i, stay: /\b(hotel|stay|rental|apartment|airbnb|home)\b/i, leave: /\b(station|airport|train|flight)\b/i };
+  return all.filter(p => gtMatch(q, p.name, p.site ? [p.site.name, p.site.local] : null) || (p.own && ownWords[p.kind] && ownWords[p.kind].test(q))).slice(0, 8);
+}
+function gtTodayStops(d, city) {
+  try { const plan = buildPlan(d); if (!plan || plan.error) return [];
+    return plan.items.filter(i => i.type === "stop" && !i.place.along && gtHas(i.place)).slice(0, 8).map(i => { const s = allSites(city).find(x => x.id === i.place.id) || i.place;
+      return { id: s.id, name: gtName(s), lat: +s.lat, lng: +s.lng, sub: "On today's plan, " + fmt(i.time), kind: "sight", site: s }; }); } catch (e) { return []; }
+}
+// The map's answers: the R-38 pick first (a named place, the door, a short street), then other named places like the words.
+async function gtMapSearch(d, city, q) {
+  if (!freeAI || (typeof navigator !== "undefined" && navigator.onLine === false)) return { msg: "Searching the map needs the internet. Places your guide knows are listed above." };
+  let j = null;
+  try { const r = await fetch(freeAI.url + "/findplace?city=" + encodeURIComponent(bareName(d.destination)) + "&q=" + encodeURIComponent(q)); if (!r.ok) return { msg: "The map search didn't answer just now. Try again in a minute." }; j = await r.json(); }
+  catch (e) { return { msg: "The map search didn't answer just now. Try again in a minute." }; }
+  const mid = gtOwnPoints(d, city)[0] || allSites(city).find(s => gtHas(s)), near = p => !mid || hav(mid, p) <= GT_MAP_KM;
+  const list = ((j && j.places) || []).filter(p => p && gtHas(p) && near({ lat: +p.lat, lng: +p.lng })), out = [];
+  const hit = typeof stayPick === "function" ? stayPick(q, list) : null;
+  if (hit) out.push({ name: gtPlant("gt-local-script") ? hit.p.name || hit.p.addr : stayLabel(hit, q), lat: +hit.p.lat, lng: +hit.p.lng, kind: "map", how: hit.how,
+    sub: hit.how === "street" ? "The street, not the house number: the map doesn't have it" : hit.how === "door" ? "Address, from the map" : "From the map" + (hit.p.addr ? ", " + showName({ name: hit.p.addr }) : "") });
+  for (const p of list) { if (out.length >= 5 || (hit && p === hit.p)) continue;
+    const names = [p.name, ...(p.names || [])].filter(Boolean); if (!names.length || !(typeof stayLike === "function" ? names.some(n => stayLike(q, n)) : names.some(n => nameMatch(q, n)))) continue;
+    if (/^(highway|boundary)$/.test(p.cat || "")) continue;
+    const latinAlt = names.find(n => !nonLatin(n)), nm = gtPlant("gt-local-script") ? p.name : latinAlt || showName({ name: p.name });
+    out.push({ name: nm, lat: +p.lat, lng: +p.lng, kind: "map", sub: "From the map" + (p.addr ? ", " + showName({ name: p.addr }) : "") }); }
+  if (!out.length) return { msg: "I couldn't find " + (nonLatin(q) ? "that place" : "“" + q + "”") + " in " + bareName(d.destination) + " on the map. Try the name on a sign, or the street and house number." };
+  return { list: out };
+}
+// Where the traveler is now: the phone's location when it is fresh; else where the plan has them at this time (today or
+// the live preview); else the day's start. Always said which.
+function gtFromChoices(d) {
+  const plan = buildPlan(d), out = [];
+  if (geoFresh() && (isToday(d) || !d.date)) out.push({ key: "gps", name: "where you are", lat: geoPos.lat, lng: geoPos.lng, say: "From where you are (your phone's location)" });
+  if (plan && !plan.error) { const now = liveNow(d), its = plan.items.filter(i => (i.type === "start" || i.type === "stop" || (i.type === "meal" && !(i.place && i.place.onBoard))) && i.place && gtHas(i.place));
+    const at = now != null ? its.filter(i => i.time <= now).pop() || its[0] : its[0];
+    its.forEach((i, k) => out.push({ key: "p" + k, name: gtName(i.place), lat: +i.place.lat, lng: +i.place.lng, at: i.time, id: i.place.id,
+      say: i === at ? (now != null ? "From " + gtName(i.place) + ", where your plan has you now" : "From " + gtName(i.place) + ", where your day starts") : "From " + gtName(i.place), dflt: i === at })); }
+  return out;
+}
+const GT_ICON = { walk: "🚶", metro: "🚇", tram: "🚋", train: "🚆", bus: "🚌", ferry: "⛴️", taxi: "🚕" };
+const GT_SRC = { timetable: "from the timetable", map: "a line on the map, no timetable: check at the stop", roads: "from the road map", guide: "the guide's time, not a timetable", estimate: "an estimate from the distance" };
+// The ways there, from the plans' own ride layer; the next departure from a timetable when the clock is known.
+function gtWays(d, from, to, now) {
+  const i = trip.days.indexOf(d), leg = gtRide(i, from, to);
+  if (gtPlant("gt-own-ride") || !leg) { const km = hav(from, to); return { pick: "walk", ways: [{ id: "walk", kind: "walk", how: "Walk", min: Math.max(1, Math.round(km * 1.3 / 4.5 * 60)), source: "estimate", steps: [] }], km }; }
+  const ways = (leg.options && leg.options.length ? leg.options : [leg]).map(o => Object.assign({}, o));
+  for (const o of ways) if (o.ans && now != null && KEngine.nextLeave) { const nx = KEngine.nextLeave(o, now); o.next = nx; o.noneLeft = nx == null && Array.isArray(o.ans.deps) && o.ans.deps.length > 0; }
+  return { pick: leg.choice || (ways[0] && ways[0].id), ways: ways.sort((x, y) => x.min - y.min), note: leg.note || "", km: hav(from, to) };
+}
+// The ride layer: Beta 2's engine (zz-engine2), else the first app's own ride rule (its Day plan's), as one option.
+function gtRide(i, a, b) {
+  if (typeof window !== "undefined" && window.__kairouteRideNow) return window.__kairouteRideNow(i, a, b);
+  const l = travel(a, b); if (!l) return null; const kind = l.mode === "walk" ? "walk" : l.transit ? "train" : "taxi";
+  return { kind, how: l.how, min: l.min, choice: kind, source: l.transit ? "timetable" : "estimate", steps: [], slack: l.slack || 0 };
+}
+// A day with a time to be back: from the place, the plans' own ride back to the ship, station or airport (with its spare
+// time), and the latest time to leave the place; or plainly that there isn't time.
+function gtBackCheck(d, to, arrive) {
+  if (gtPlant("gt-no-deadline")) return null;
+  const plan = buildPlan(d); if (!plan || plan.error || !plan.w || !plan.w.tail || !plan.w.tail.length) return null;
+  const end = plan.w.tail[plan.w.tail.length - 1]; if (!end || !(end.backToShip || end.deadline) || !KEngine.fin(plan.endBy)) return null;
+  const i = trip.days.indexOf(d), back = gtRide(i, to, end); if (!back) return null;
+  const word = deadlineWord(d), leaveBy = plan.endBy - back.min, sure = back.source === "timetable";
+  return { word, backBy: plan.endBy, leaveBy, rideMin: back.min, how: back.how, kind: back.kind, sure, slack: back.slack || 0, room: arrive != null ? leaveBy - arrive : null, endName: gtName(end) };
+}
+function gtCardHTML(d) {
+  const p = gt.pick, f = (gt.froms || []).find(x => x.key === gt.fromKey) || null;
+  if (!f) return `<p class="lede">I need a place to start from. Turn on location, or open today's plan first.</p>`;
+  const now = typeof window !== "undefined" && KEngine.fin(window.__kairouteGtAt) ? window.__kairouteGtAt : liveNow(d), leaveAt = now != null ? now : f.at;
+  const r = gtWays(d, f, p, leaveAt), best = r.ways.find(o => o.id === r.pick) || r.ways[0];
+  const est = o => o.kind !== "walk" && o.source !== "timetable" && !gtPlant("gt-confirmed");
+  const row = o => `<li class="gtway${o === best ? " on" : ""}" data-kind="${esc(o.kind)}" data-src="${esc(o.source || "estimate")}"><span class="gtl1"><b>${GT_ICON[o.kind] || "🚕"} ${esc(KEngine.say(o.how, o.kind === "walk" ? "Walk" : "Taxi or car"))}</b> · <span class="gtmin">${est(o) ? "about " : ""}${dur(o.min)}</span>${o === best ? ` <span class="badge">Kairoute's pick</span>` : ""}</span>
+    <span class="sub">${gtPlant("gt-confirmed") ? "" : esc(GT_SRC[o.source] || GT_SRC.estimate)}${o.next != null ? " · next one leaves about " + fmt(o.next) : o.noneLeft ? " · no more departures today in the timetable" : ""}</span>
+    ${(o.steps || []).length ? `<span class="sub gtsteps">${o.steps.map(s => esc(KEngine.say(s, ""))).filter(Boolean).join(". ")}.</span>` : ""}</li>`;
+  const arrive = leaveAt != null ? leaveAt + best.min : null, bc = gtBackCheck(d, p, arrive);
+  let back = "";
+  if (bc) {
+    const basis = bc.sure || bc.kind === "walk" ? "" : bc.slack ? ` That is an estimate with ${dur(bc.slack)} spare in it; no timetable confirms it.` : " That is an estimate; no timetable confirms it.";
+    if (bc.room != null && bc.room < 0) back = `<div class="banner warn gtback" role="alert" data-back="none"><span><b>Not enough time to get back.</b> Going there ${now != null ? "now" : "from " + esc(f.name)} you would arrive about ${fmt(arrive)}, but you must leave by ${fmt(bc.leaveBy)} to be back at ${esc(bc.endName)} by ${fmt(bc.backBy)} (${esc(bc.how.toLowerCase())}, ${dur(bc.rideMin)}).${basis}</span></div>`;
+    else back = `<div class="banner ${bc.room != null && bc.room < 30 ? "warn" : ""} gtback" role="note" data-back="${bc.room != null && bc.room < 30 ? "short" : "ok"}"><span>To be back at ${esc(bc.endName)} by ${fmt(bc.backBy)}, leave ${esc(p.name)} by <b>${fmt(bc.leaveBy)}</b> at the latest (${esc(bc.how.toLowerCase())}, ${dur(bc.rideMin)}).${bc.room != null ? ` Arriving about ${fmt(arrive)} leaves you about ${dur(Math.max(0, bc.room))} there.` : ""}${basis} The time that counts is ${esc(bc.word)}'s own.</span></div>`;
+  }
+  const ll = x => (+x.lat).toFixed(5) + "," + (+x.lng).toFixed(5), gm = `https://www.google.com/maps/dir/?api=1&origin=${ll(f)}&destination=${ll(p)}&travelmode=${best.kind === "walk" ? "walking" : best.kind === "taxi" ? "driving" : "transit"}`;
+  const fromSel = gt.froms.length > 1 ? `<div class="field gtfrom"><label for="gtFrom">Starting from</label><select id="gtFrom">${gt.froms.map(x => `<option value="${esc(x.key)}" ${x.key === gt.fromKey ? "selected" : ""}>${esc(x.say)}</option>`).join("")}</select></div>` : `<p class="sub gtfromline">${esc(f.say)}</p>`;
+  return `<h3 class="gtdest">${esc(p.name)}</h3><p class="sub">${esc(p.sub || "")} · ${esc(distTxt(r.km))} away as the crow flies</p>${fromSel}
+    ${back}<span class="eyebrow">Ways to get there</span><ul class="gtways">${r.ways.map(row).join("")}</ul>
+    ${r.note ? `<p class="sub gtnote">${esc(KEngine.say(r.note, ""))}</p>` : ""}
+    <div class="actions"><a class="btn ghost small" target="_blank" rel="noopener" href="${gm}">🗺 Directions in Google Maps</a><button class="btn ghost small" data-act="gtback">‹ Search again</button></div>`;
+}
+function gtResultsHTML() {
+  const it = (x, k, src) => `<button class="btn ghost gtres" data-act="gtpick" data-src="${src}" data-k="${k}"><b>${esc(x.name)}</b><small>${esc(x.sub || "")}</small></button>`;
+  const loc = (gt.list || []).map((x, k) => it(x, k, "l")).join(""), map = (gt.map || []).map((x, k) => it(x, k, "m")).join("");
+  return `${loc ? `<span class="eyebrow">${gt.q.trim() ? "In your trip and guide" : "Your places today"}</span><div class="bookres">${loc}</div>` : ""}
+    ${gt.busy ? `<p class="banner" role="status"><span class="spinner"></span> Searching the map…</p>` : ""}
+    ${map ? `<span class="eyebrow">On the map</span><div class="bookres">${map}</div>` : ""}
+    ${gt.mapMsg ? `<p class="lede small gtmsg" role="status">${esc(gt.mapMsg)}</p>` : ""}
+    ${gt.q.trim() && !gt.asked && !gt.busy ? `<button class="btn small" data-act="gtmap">${nonLatin(gt.q) ? "Search the map" : "Search the map for “" + esc(gt.q.trim()) + "”"}</button>` : ""}`;
+}
+function gtSheet() {
+  let el = document.getElementById("gtSheet"); if (!gt) { if (el) el.remove(); return; }
+  const d = gtDay(); if (!d) { gt = null; if (el) el.remove(); return; }
+  const fresh = !el;
+  if (fresh) { el = document.createElement("div"); el.id = "gtSheet"; el.setAttribute("role", "dialog"); el.setAttribute("aria-modal", "true"); el.setAttribute("aria-label", "Get there"); document.body.appendChild(el);
+    el.addEventListener("click", e => { if (e.target === el) { gt = null; gtSheet(); } }); }
+  if (gt.pick) { el.innerHTML = `<div class="sheet"><div class="actions gttop"><span class="eyebrow">Get there</span><button class="btn ghost small" data-act="gtclose">Close</button></div><div class="gtcard">${gtCardHTML(d)}</div><p class="ai-note">Places from your guide and OpenStreetMap; ways and times from the same ride rules as your plan. Nothing is made up.</p></div>`; return; }
+  if (fresh || !el.querySelector("#gtQ")) el.innerHTML = `<div class="sheet"><div class="actions gttop"><span class="eyebrow">Get there</span><button class="btn ghost small" data-act="gtclose">Close</button></div>
+    <form class="ask gtask" data-gtform="1" role="search"><input type="search" id="gtQ" enterkeyhint="search" autocomplete="off" placeholder="A sight, station, restaurant or address" aria-label="Where do you want to go?" value="${esc(gt.q)}"><button type="submit" class="btn small">Search</button></form>
+    <div id="gtRes" aria-live="polite"></div><p class="ai-note">Places from your guide and OpenStreetMap. Nothing is made up.</p></div>`;
+  el.querySelector("#gtRes").innerHTML = gtResultsHTML();
+  if (fresh) setTimeout(() => { const q = document.getElementById("gtQ"); if (q && !(window.matchMedia && matchMedia("(pointer: coarse)").matches && !q.value)) q.focus(); }, 0);
+}
+function gtType(q) { const d = gtDay(); if (!d || !gt) return; const city = cityFor(d); gt.q = q; gt.asked = false; gt.map = []; gt.mapMsg = ""; gt.list = city ? gtLocal(d, city, q) : []; gtSheet(); }
+async function gtAskMap() {
+  const d = gtDay(), city = d && cityFor(d); if (!gt || !city || !gt.q.trim()) return; const q = gt.q.trim();
+  gt.busy = true; gt.asked = true; gtSheet();
+  const r = await gtMapSearch(d, city, q); if (!gt || gt.q.trim() !== q) return;
+  gt.busy = false; const seen = gt.list || [];
+  gt.map = (r.list || []).filter(x => !seen.some(y => hav(x, y) < 0.06 && nameMatch(x.name, y.name)));
+  gt.mapMsg = r.msg || (r.list && !gt.map.length ? "The map found only the places listed above." : ""); gtSheet();
+}
+async function gtChoose(x) {
+  const d = gtDay(); if (!d || !x) return;
+  gt.pick = x; gt.froms = gtFromChoices(d);
+  // The phone's location, asked only now, from the traveler's own tap, and only on the day itself.
+  if (isToday(d) && !geoFresh() && navigator.geolocation) { gt.fromKey = (gt.froms.find(f => f.dflt) || gt.froms[0] || {}).key; gtSheet();
+    const pos = await camPosition(); if (pos && gt && gt.pick === x) { gt.froms = gtFromChoices(d); gt.fromKey = "gps"; } }
+  else gt.fromKey = ((gt.froms.find(f => f.key === "gps")) || gt.froms.find(f => f.dflt) || gt.froms[0] || {}).key;
+  gtAskRides(d); gtSheet();
+}
+// The street routes and timetables for the ride there and the ride back are asked as the plans' rides are; the card is
+// drawn again as each answer arrives (the ride layer reads them through the app's kept answers).
+let gtGen = -1, gtTimer = 0;
+function gtAskRides(d) {
+  const f = (gt.froms || []).find(x => x.key === gt.fromKey), p = gt.pick; if (!f || !p) return;
+  const pairs = [], km = hav(f, p); if (km <= 3) pairs.push(["foot", f, p]); if (km > 0.5) pairs.push(["car", f, p]);
+  try { if (pairs.length && typeof askRouteTimes === "function") askRouteTimes(pairs); } catch (e) {}
+  clearInterval(gtTimer); gtGen = typeof nearGen !== "undefined" ? nearGen : 0;
+  gtTimer = setInterval(() => { if (!gt || !gt.pick) { clearInterval(gtTimer); return; } if (typeof nearGen !== "undefined" && nearGen !== gtGen) { gtGen = nearGen; gtSheet(); } }, 1500);
+}
+function gtAct(act, t) {
+  if (act === "gtopen") { const d = gtDay(); if (!d) return true; gt = { q: "", list: [], map: [] }; gtType(""); return true; }
+  if (act === "gtclose") { gt = null; clearInterval(gtTimer); gtSheet(); return true; }
+  if (act === "gtback") { const q = gt ? gt.q : ""; gt = { q, list: [], map: [] }; const el = document.getElementById("gtSheet"); if (el) el.innerHTML = ""; gtType(q); return true; }
+  if (act === "gtmap") { gtAskMap(); return true; }
+  if (act === "gtpick") { const x = gt && (t.dataset.src === "m" ? gt.map : gt.list)[+t.dataset.k]; if (x) gtChoose(x); return true; }
+  return false;
+}
+if (typeof document !== "undefined") {
+  document.addEventListener("input", e => { if (e.target && e.target.id === "gtQ") gtType(e.target.value); });
+  document.addEventListener("submit", e => { if (e.target && e.target.dataset && e.target.dataset.gtform) { e.preventDefault(); const q = document.getElementById("gtQ"); if (q) gt.q = q.value; gtAskMap(); } });
+  document.addEventListener("change", e => { if (e.target && e.target.id === "gtFrom" && gt) { gt.fromKey = e.target.value; gtAskRides(gtDay()); gtSheet(); } });
+  document.addEventListener("keydown", e => { if (e.key === "Escape" && gt) { gt = null; gtSheet(); } });
+  document.head.insertAdjacentHTML("beforeend", `<style id="gt-css">
+#gtSheet { position: fixed; inset: 0; z-index: 80; background: rgba(0,0,0,.45); display: flex; align-items: flex-end; justify-content: center; }
+#gtSheet .sheet { background: var(--card); color: var(--ink); width: min(640px, 100%); max-height: 88vh; overflow: auto; padding: 18px; border-radius: 10px 10px 0 0; display: grid; gap: 10px; }
+#gtSheet .gttop { justify-content: space-between; align-items: center; margin: 0; }
+#gtSheet .gtask { display: flex; gap: 8px; } #gtSheet .gtask input { flex: 1; min-width: 0; min-height: 44px; font-size: 1rem; }
+#gtSheet .gtres { width: 100%; }
+#gtSheet .gtways { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+#gtSheet .gtway { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; display: grid; gap: 2px; }
+#gtSheet .gtway.on { border-color: var(--route); background: var(--route-soft); }
+#gtSheet .gtway .sub { font-size: .86rem; color: var(--muted); }
+#gtSheet h3.gtdest { margin: 0; }
+#gtSheet .gtback { margin: 0; }
+@media (min-width: 900px) { #gtSheet { align-items: center; } #gtSheet .sheet { border-radius: 10px; } }
+</style>`);
+}
+if (typeof window !== "undefined") window.__kairouteGetThere = () => gt ? { q: gt.q, list: (gt.list || []).map(x => x.name), map: (gt.map || []).map(x => x.name), pick: gt.pick && gt.pick.name, from: gt.fromKey } : null;
 // ===================== Guide extras =====================
 // Golden hour and photo spots, local know-how, practical answers for "Ask your guide", theme tours, kids mode,
 // the before-you-arrive story, ship's-tour savings and the trip storybook. Rules for all of them:
@@ -17216,6 +17483,7 @@ function rateRow(it, d) {
     ${today ? `<span class="sub">How busy?</span>${[[1, "Quiet"], [2, "Busy"], [3, "Packed"]].map(([n, l]) => `<button class="busy" data-act="busyrow" data-sid="${esc(s.id)}" data-n="${n}" aria-pressed="${b === n}">${l}</button>`).join("")}` : ""}</div></div>`;
 }
 function liveAct(act, t) {
+  if (gtAct(act, t)) return true;
   const d = day();
   if (act === "wxswap") { d.rain = t.dataset.why === "heat" ? "heat" : true; d.wxKeep = false; save(); render(); return true; }
   if (act === "wxkeep") { d.wxKeep = true; save(); render(); return true; }
@@ -17665,7 +17933,7 @@ function camSheet() {
     <p class="ai-note">Matched only against real places near you (the guide and OpenStreetMap). Nothing is made up.</p></div>`;
 }
 if (typeof document !== "undefined") document.addEventListener("change", e => { if (e.target && e.target.id === "camFile" && e.target.files && e.target.files[0]) camLookup(e.target.files[0]); });
-function liveAfterRender() { try { camButton(); alarmTick(); shipMount(); } catch (e) { console.warn("live", e); } }
+function liveAfterRender() { try { camButton(); alarmTick(); shipMount(); if (gt && !document.getElementById("gtSheet")) gtSheet(); } catch (e) { console.warn("live", e); } }
 // Test hooks for the safety net (tools/live-check.cjs): point the app at a stand-in server, load a forecast,
 // read what each day's plan did with hours, weather and crowds, and count the alerts raised.
 if (typeof window !== "undefined") window.__kairouteLiveTest = {
@@ -18640,16 +18908,84 @@ async function srcStarts(label, area, port, centre, d) {
   return starts;
 }
 if (typeof window !== "undefined") window.__kairouteSrcStarts = (label, centre, port) => srcStarts(label, label, port || label, centre, null);
-// The traveler's own hotel, found on the map by name (OpenStreetMap through the helper), with no AI.
+// ---- Where you're staying (rule R-38) ----
+// The traveler's own hotel or rental, found on the map (OpenStreetMap through the helper, no AI) by its name OR by
+// its street address, typed any way a booking shows it: with a house number, a flat or floor ("47/12", "2º Esq",
+// "Apartment 4"), a small typo, or in the local script. Nov 27 (Richard: "find an address for a rental does not
+// work"): the old check kept an answer only when its NAME matched what was typed, or when it was a hotel; a house
+// found by its street and number has no name, so every address was "Couldn't find". The rule, for every city:
+// 1. A place whose name (any of the names the map knows) is like what was typed: found ("place").
+// 2. A house with the house number typed, on a street like the one typed (a street typed in another script counts
+//    when the map answered it inside the city): found at that door ("door").
+// 3. Only the street, with no house of that number on the map: used only when the street is short (800 m end to end
+//    or less), and the screen says so: the street, not the number ("street"). A longer street is not used: a door
+//    somewhere on it is a guess.
+// 4. Anything else is not found, and the screen says so plainly, with the area the day starts from meanwhile. Never
+//    the first hotel the map happened to list.
+// What is shown is in the traveler's language (R-11): the place's English name, or its street and number in Latin
+// letters.
+const STAY_STREET_M = 800, STAY_UNIT = /\b(?:apt|apartment|apartamento|appartamento|appartement|wohnung|flat|unit|suite|ste|room|piso|planta|andar|etage|étage|stiege|stg|stock|tür|door|top|floor|fl)\b\.?\s*[\w\-º°ª]*/gi;
+// One word like another: the same, or a letter or two apart in a longer word (a typo), or the same stem.
+function stayWordLike(a, b) {
+  if (a === b) return true; if (a.length >= 5 && b.length >= 5 && (a.startsWith(b.slice(0, 5)) || b.startsWith(a.slice(0, 5)))) return true;
+  const lim = Math.min(a.length, b.length) >= 7 ? 2 : Math.min(a.length, b.length) >= 4 ? 1 : 0; if (!lim || Math.abs(a.length - b.length) > lim) return false;
+  let prev = Array.from({ length: b.length + 1 }, (_, j) => j);
+  for (let i = 1; i <= a.length; i++) { const cur = [i]; for (let j = 1; j <= b.length; j++) cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1)); prev = cur; }
+  return prev[b.length] <= lim;
+}
+// Most (three in four) of the words typed are in the name.
+function stayLike(want, got) {
+  const w = keyOf(String(want || "").replace(/\(.*?\)/g, " ")).split(" ").filter(t => t.length > 1 && !/^\d+[a-z]?$/.test(t) && !SMALL_WORDS.has(t)), g = keyOf(got).split(" ").filter(Boolean);
+  if (!w.length || !g.length) return false;
+  return w.filter(t => g.some(x => stayWordLike(t, x))).length / w.length >= 0.75;
+}
+// What was typed, without the flat, floor or door part (the map has houses, not flats).
+function stayStreetPart(q) {
+  let num = false;
+  return String(q || "").replace(/#\s*\w+/g, " ").replace(STAY_UNIT, " ").replace(/(\d+[a-z]?)\s*\/\s*\d+[a-z]?\b/gi, "$1").split(",").map(s => s.replace(/\s+/g, " ").trim())
+    .filter(s => { if (!s) return false; const unitOnly = /^(\d{1,3}\s*[º°ª]?\s*[a-z]{0,4}\.?|[a-z]{1,4}\.?\s*\d{1,3}[a-z]?|[º°ª]?\s*[a-z]{1,4}\.?)$/i.test(s); if (num && unitOnly) return false; if (/\d/.test(s)) num = true; return true; }).join(", ");
+}
+const stayNums = q => (stayStreetPart(q).match(/\d+[a-z]?/gi) || []).map(x => x.toLowerCase());
+const stayHouse = h => String(h || "").toLowerCase().split(/[;,]/).map(x => x.trim().replace(/\s+/g, "")).filter(Boolean);
+// Which answer the map gave is the traveler's place, and how sure: { p, how: "place" | "door" | "street" } or null.
+function stayPick(q, list) {
+  const ok = (list || []).filter(p => p && KEngine.fin(p.lat) && KEngine.fin(p.lng)), street = stayStreetPart(q), nums = stayNums(q), other = nonLatin(q);
+  if (window.__kairoutePlant === "stay-any-hotel") { const h = ok.find(p => /hotel|guest|hostel|apartment/.test((p.kind || "") + " " + (p.cat || ""))); if (h) return { p: h, how: "place" }; }
+  // A street, a boundary or a district is never "the place" by its name: with a house number typed it is at most the
+  // street (Nov 27 live: "Mariahilfer Straße 47/12" answered by the district boundaries named after the street).
+  const area = p => p.cat === "highway" || p.cat === "boundary" || /^(administrative|suburb|neighbourhood|quarter|city_block|city|town|village|hamlet|locality|district|borough|road|street|residential|pedestrian|footway|living_street|tertiary|secondary|primary|trunk|unclassified|service|path|steps)$/.test(p.kind || "");
+  // With a house number typed, a named answer must be at that number (or carry none), and a name that is only the
+  // street's ("Rua Augusta Store" for "Rua Augusta 100") is not the place.
+  const numOk = p => !nums.length || ((!p.house || stayHouse(p.house).some(x => nums.includes(x))) && ![p.name, ...(p.names || [])].some(n => n && p.road && stayLike(p.road, n)));
+  const named = ok.find(p => !area(p) && numOk(p) && [p.name, ...(p.names || [])].some(n => n && (stayLike(q, n) || stayLike(street, n) || (other && nonLatin(n) && String(q).replace(/\s+/g, "").includes(String(n).replace(/\s+/g, ""))))));
+  if (named) return { p: named, how: "place" };
+  if (window.__kairoutePlant === "stay-name-only") return null;   // the bug of Nov 27: an address is never found
+  const roadLike = p => !!p.road && (stayLike(street.replace(/\d+[a-z]?/gi, " "), p.road) || other);
+  if (window.__kairoutePlant === "stay-wrong-door") { const any = ok.find(p => p.house && roadLike(p)); if (any) return { p: any, how: "door" }; }
+  const door = ok.find(p => p.house && stayHouse(p.house).some(x => nums.includes(x)) && roadLike(p));
+  if (door) return { p: door, how: "door" };
+  const st = ok.find(p => !p.house && area(p) && roadLike({ road: p.road || p.name }));
+  if (st && (window.__kairoutePlant === "stay-long-street" || (+st.spanM > 0 && +st.spanM <= STAY_STREET_M))) return { p: Object.assign({}, st, { road: st.road || st.name }), how: "street" };
+  return null;
+}
+// How the place is named on screen, in the traveler's language.
+function stayLabel(hit, typed) {
+  const p = hit.p, addr = String(p.addr || "").trim(), nm = String(p.name || "").trim();
+  const say = t => typeof showName === "function" ? showName({ name: t }) : t;
+  if (hit.how === "place" && nm) return say(nm) + (addr && !nameMatch(nm, addr) ? ", " + say(addr) : "");
+  if (hit.how === "street") return say(p.road || nm || addr);
+  return say(addr || nm || typed);
+}
 async function findHotelNoAI(name, d) {
   if (!freeAI || !name) return null;
   try {
-    const r = await fetch(freeAI.url + "/findplace?city=" + encodeURIComponent(bareName(d.destination)) + "&q=" + encodeURIComponent(name)); if (!r.ok) return null;
-    const j = await r.json(), list = (j && j.places) || [];
-    const hit = list.find(p => KEngine.fin(p.lat) && (nameMatch(name, p.name) || (p.names || []).some(n => nameMatch(name, n)))) || list.find(p => KEngine.fin(p.lat) && /hotel|guest|hostel|apartment|motel|tourism/.test((p.kind || "") + " " + (p.cat || "")));
-    return hit ? { name: hit.name || name, lat: +hit.lat, lng: +hit.lng, addr: hit.addr || "" } : null;
-  } catch (e) { return null; }
+    const r = await fetch(freeAI.url + "/findplace?city=" + encodeURIComponent(bareName(d.destination)) + "&q=" + encodeURIComponent(name)); if (!r.ok) return { failed: true };
+    const j = await r.json(), list = (j && j.places) || [], hit = stayPick(name, list);
+    if (!hit) return { none: true };
+    return { name: stayLabel(hit, name), lat: +hit.p.lat, lng: +hit.p.lng, how: hit.how, addr: hit.p.addr || "", nums: stayNums(name) };
+  } catch (e) { return { failed: true }; }
 }
+if (typeof window !== "undefined") { window.__kairouteStayPick = (q, list) => { const h = stayPick(q, list); return h ? { how: h.how, name: stayLabel(h, q), lat: h.p.lat, lng: h.p.lng } : null; }; window.__kairouteStayStreet = stayStreetPart; }
 // ---- Classic day trips (rule R-37) ----
 // Every city's guide offers its well-known day trips, the ones reached by boat included, in every city, from free
 // sources alone (no AI, nothing invented). Nov 25: Hvar from Split, the Princes' Islands from Istanbul, Lantau from
@@ -18876,6 +19212,8 @@ if (typeof window !== "undefined") {
   // Test hook: build a city's guide from its sources alone (as with the AI switched off) for day i.
   window.__kairouteSourceGuide = async i => { const d = trip.days[i]; const c = await sourceGuide(d); return c ? { city: c.city, main: c.sites.filter(x => !x.quick).length, quick: c.sites.filter(x => x.quick).length, must: c.sites.filter(x => x.mustSee).map(x => x.name), eats: c.restaurants.length, starts: Object.fromEntries(Object.entries(c.starts).map(([k, v]) => [k, v.map(p => p.name + (p.unknown ? " (unknown)" : ""))])) } : null; };
 }
+if (typeof window !== "undefined") { window.__kairouteTripLodging = i => { const d = trip.days[i]; return d ? trip.lodging[cityKeyFor(d) || keyOf(d.destination)] || null : null; };
+  window.__kairouteStayAt = i => { const d = trip.days[i]; const L = d && lodgingFor(d, cityFor(d)); return L ? { name: L.name, lat: +L.lat, lng: +L.lng, approx: !!L.approx } : null; }; }
 if (typeof window !== "undefined") window.__kairouteCityOf = i => { const d = trip.days[i]; return d ? cityFor(d) || null : null; };
 // ===================== Offline trips =====================
 // Planning needs the internet. The trip itself runs with none: cruise ships, foreign SIM cards and old towns
@@ -19458,7 +19796,7 @@ function printDay(d, i) {
     }
     return "";
   }).join("");
-  const notes = [plan.dropped.length ? `Didn't fit this day: ${plan.dropped.map(s => esc(s.name)).join(", ")}.` : "", d.estimated ? "Port times are estimated. Check them against your cruise documents." : ""].filter(Boolean);
+  const notes = [plan.dropped.length ? `Didn't fit this day: ${plan.dropped.map(s => esc(s.name)).join(", ")}.` : "", estLine(d) ? esc(estLine(d)) : ""].filter(Boolean);
   return `<section class="pday">${head}
     <div class="pkeys">${keys.map(([a, b]) => `<div><span>${a}</span><strong>${b}</strong></div>`).join("")}</div>
     <p class="pzone">All times are ${esc(zoneLabel(d))}.${d.shipOff && d.allAboard ? ` The ship's clock is ${dur(Math.abs(d.shipOff))} ${d.shipOff > 0 ? "ahead" : "behind"}: all aboard ${esc(d.allAboard)} ship time is ${fmt(toMin(d.allAboard) - d.shipOff)} ${esc(zoneLabel(d))}.` : ""}</p>
@@ -21961,8 +22299,11 @@ if (typeof window !== "undefined") window.__kairouteTime = { dayZone: i => dayZo
 // ship. Nothing is guessed: a time left empty is marked as estimated and the day says so. The AI reading of a
 // description or a photo stays as an optional shortcut when the AI guide is on.
 const TS_MOVE = [["flight", "Flight"], ["train", "Train"], ["ferry", "Ferry"], ["car", "Car or bus"]];
-const tsStay = o => Object.assign({ k: "stay", place: "", date: "", nights: 3, inBy: "flight", leaveAt: "", inAt: "", hotel: "", homeBy: "flight", homeAt: "" }, o || {});
-const tsCruise = o => Object.assign({ k: "cruise", ship: "", board: "", date: "", aboard: "", inBy: "flight", leaveAt: "", inAt: "", ports: [], end: "", endDate: "", off: "", homeBy: "flight", homeAt: "" }, o || {});
+// inGate: the airport or station you arrive at; fromGate: the one you leave the stop before from; homeGate: the one you
+// leave from to go home. leaveNight / homeNight: a leaving time in the small hours is "morning" (early that day) or
+// "night" (late that night, after midnight), asked as it is typed (R-01, R-41).
+const tsStay = o => Object.assign({ k: "stay", place: "", date: "", nights: 3, inBy: "flight", leaveAt: "", inAt: "", inGate: "", fromGate: "", leaveNight: "", hotel: "", homeBy: "flight", homeAt: "", homeGate: "", homeNight: "" }, o || {});
+const tsCruise = o => Object.assign({ k: "cruise", ship: "", board: "", date: "", aboard: "", inBy: "flight", leaveAt: "", inAt: "", inGate: "", fromGate: "", leaveNight: "", ports: [], end: "", endDate: "", off: "", homeBy: "flight", homeAt: "", homeGate: "", homeNight: "" }, o || {});
 const tsPort = o => Object.assign({ date: "", place: "", arrive: "", aboard: "", tender: false }, o || {});
 const tsEnd = l => l.k === "stay" ? (l.date ? addDays(l.date, Math.max(0, +l.nights || 0)) : "") : l.endDate;
 const tsWhere = l => l.k === "stay" ? l.place : l.end;
@@ -22019,23 +22360,159 @@ function tsCheck(legs) {
   }
   return "";
 }
+// ---- R-41: every detail a day's plan depends on is asked here, up front (Richard, Nov 27: "all the information that has
+// to be entered for a trip needs to be asked upfront and not leave it to be located to be filled in") ----
+// What the planner and the safety checks use for each day: the time each flight, train, ferry or car arrives and leaves,
+// which airport or station it uses (a city can have several, and the time to get there depends on which), the hotel
+// (every day starts and ends there), the ship's all-aboard time on the boarding day, each port's arrival and all-aboard
+// times, the time off the ship, and for a departure in the small hours whether it is that morning or that night. Every
+// one has a field on this form. Before the trip is made, the ones left empty are listed together, each one tap from its
+// field; the traveler fills them in, or says they don't know them yet. A detail not known yet is never filled in as if it
+// were real: the day says it's missing and the Trip page lists it until it's added (tripNeeds below).
+const TS_GATE = { flight: "airport", train: "station" };
+const tsSmall = t => /^\d\d:\d\d$/.test(t || "") && t < "05:00";
+const tsRide = m => ({ flight: "flight", train: "train", ferry: "ferry" })[m] || "";
+function tsNeeds(legs) {
+  const out = [], need = (f, what) => out.push({ f, what }), nm = x => bareName(x || "") || "there";
+  legs.forEach((l, i) => {
+    const prev = legs[i - 1], here = nm(l.k === "stay" ? l.place : l.board), id = k => `ts-${i}-${k}`;
+    if (!tsJoined(prev, l)) {
+      const r = tsRide(l.inBy), from = prev ? nm(tsWhere(prev)) : "";
+      if (prev && !l.leaveAt) need(id("leaveAt"), r ? `When your ${r} leaves ${from}` : `When you leave ${from}`);
+      if (prev && TS_GATE[l.inBy] && !bareName(l.fromGate)) need(id("fromGate"), `Which ${TS_GATE[l.inBy]} you leave ${from} from`);
+      if (prev && tsSmall(l.leaveAt) && !l.leaveNight) need(id("leaveNight"), `Whether your ${l.leaveAt} ${r || "departure"} is early in the morning or late at night`);
+      if (!l.inAt) need(id("inAt"), r ? `When your ${r} ${l.inBy === "flight" ? "lands" : "arrives"} in ${here}` : `When you arrive in ${here}`);
+      if (TS_GATE[l.inBy] && !bareName(l.inGate)) need(id("inGate"), `Which ${TS_GATE[l.inBy]} you arrive at in ${here}`);
+    }
+    if (l.k === "stay") { if ((+l.nights || 0) > 0 && !bareName(l.hotel)) need(id("hotel"), `Your hotel in ${here}`); }
+    else {
+      if (!l.aboard) need(id("aboard"), `All-aboard time on boarding day in ${here}`);
+      l.ports.forEach((p, j) => { if (!bareName(p.place)) return;
+        if (!p.arrive) need(id(`p${j}-arrive`), `When the ship arrives in ${nm(p.place)}`);
+        if (!p.aboard) need(id(`p${j}-aboard`), `All-aboard time in ${nm(p.place)}`); });
+      if (!l.off) need(id("off"), `When you're off the ship in ${nm(l.end)}`);
+    }
+    if (i === legs.length - 1) { const r = tsRide(l.homeBy), at = nm(tsWhere(l));
+      if (!l.homeAt) need(id("homeAt"), r ? `When your ${r} home leaves ${at}` : `When you leave ${at} to go home`);
+      if (TS_GATE[l.homeBy] && !bareName(l.homeGate)) need(id("homeGate"), `Which ${TS_GATE[l.homeBy]} you leave ${at} from`);
+      if (tsSmall(l.homeAt) && !l.homeNight) need(id("homeNight"), `Whether your ${l.homeAt} ${r || "departure"} is early in the morning or late at night`); }
+  });
+  return out;
+}
+// The list, shown before the trip is made (wiz.missAsk: "build" or "more", the button that asked).
+function tsNeedHTML(w) {
+  if (!w.missAsk) return ""; const n = tsNeeds(w.legs); if (!n.length) return "";
+  return `<div class="card tsneed" role="alert" id="tsNeed"><h3>Your plan needs ${n.length === 1 ? "one more detail" : n.length + " more details"} from your bookings</h3>
+    <p class="lede small">Kairoute plans each day around these. Fill in what you have. Anything you don't know yet stays on your Trip page as "still needed" until you add it, and the days it affects say so: a time you haven't given is never shown as confirmed.</p>
+    <ul class="tips tsneedlist">${n.map(x => `<li><button type="button" class="linkbtn" data-ts="needgo" data-f="${esc(x.f)}">${esc(x.what)}</button></li>`).join("")}</ul>
+    <div class="actions"><button type="button" class="btn" data-ts="needgo" data-f="${esc(n[0].f)}">Fill them in</button><button type="button" class="btn ghost" data-ts="needok">I don't know ${n.length === 1 ? "it" : "these"} yet, continue</button></div></div>`;
+}
+// Before the trip is made (or before "Personalize first" leaves this page): the details left empty are asked, once.
+function tsAskNeeds(next) {
+  if (!wiz || !wiz.legs || wiz.unknownOk || !tsNeeds(wiz.legs).length) return false;
+  wiz.missAsk = next; wiz.step = 0; aiError = ""; render();
+  const c = document.getElementById("tsNeed"); if (c) c.scrollIntoView({ block: "start" }); return true;
+}
+// The airports and stations a city's own guide lists (offered as the traveler types).
+function tsGateNames(place, kind) {
+  const k = keyOf(bareName(place || "")); if (!k || !kind) return [];
+  const out = []; try { ensureBuiltins(); for (const [c] of BUILTIN_CITIES) if (keyOf(bareName(c.city)) === k) ((c.starts || {})[kind] || []).forEach(g => out.push(g.name)); } catch (e) {}
+  Object.values(cities).forEach(c => { if (c && keyOf(bareName(c.city || "")) === k) ((c.starts || {})[kind] || []).forEach(g => { if (!g.unknown) out.push(g.name); }); });
+  return [...new Set(out)];
+}
+// After the guides are in: each airport or station the traveler named is matched to the city's own list, else found on
+// the map (the same lookup the day uses, pierSearch); one clear answer is used, else the day asks with the name filled in.
+async function tsGates() {
+  for (const d of trip.days) {
+    if (!d.gateWant || d.gate || d.pointPicked) continue;
+    const kind = askKind(d), city = cityFor(d); if (!city || (kind !== "airport" && kind !== "station")) continue;
+    const want = keyOf(d.gateWant), code = /^[A-Z]{3}$/.test(d.gateWant.trim()) ? d.gateWant.trim() : "";
+    // Every word the traveler typed (past "airport", "station" and the like) is in the listed name, or the code is.
+    const words = n => keyOf(n || "").split(/[^a-z0-9]+/).filter(x => x.length > 2 && !/^(airport|station|international|the|and|railway|train|terminal)$/.test(x));
+    const list = pointList(city, kind), mine = words(d.gateWant);
+    const hits = list.map((p, idx) => ({ p, idx })).filter(({ p }) => !p.unknown && (keyOf(p.name) === want || (code && new RegExp("\\b" + code + "\\b").test(p.name || "")) || (mine.length && mine.every(x => words(p.name).includes(x)))));
+    if (hits.length === 1) { d.pointIdx = hits[0].idx; d.pointPicked = true; save(); continue; }
+    if (typeof navigator !== "undefined" && navigator.onLine === false) continue;
+    try {
+      const ss = allSites(city).filter(x => KEngine.fin(x.lat)), mid = ss.length ? { lat: ss.map(x => +x.lat).sort((a, b) => a - b)[ss.length >> 1], lng: ss.map(x => +x.lng).sort((a, b) => a - b)[ss.length >> 1] } : null;
+      const r = freeAI ? await fetch(freeAI.url + "/findplace?city=" + encodeURIComponent(bareName(d.destination)) + "&q=" + encodeURIComponent(d.gateWant)) : null, j = r && r.ok ? await r.json() : null;
+      const K = typeof SG_KIND !== "undefined" ? SG_KIND[kind] : null;
+      const ok = ((j && j.places) || []).filter(m => KEngine.fin(m.lat) && KEngine.fin(m.lng) && (!mid || hav(mid, m) <= (kind === "airport" ? 60 : 30)))
+        .filter(m => !K || K.map.test(String(m.kind || "")) || K.re.test(String(m.name || "")))
+        .filter(m => kind !== "airport" || !KEngine.gateOk || (KEngine.gateOk("airport", m) && !(KEngine.NOT_BUILT && KEngine.NOT_BUILT.test(String(m.name || "") + " " + String(m.kind || "")))));
+      const one = ok.filter((m, i) => !ok.slice(0, i).some(y => hav(y, m) < 1));
+      if (one.length === 1) { d.gate = Object.assign({ name: one[0].name, lat: +(+one[0].lat).toFixed(5), lng: +(+one[0].lng).toFixed(5), kind }, one[0].kind ? { mapKind: String(one[0].kind) } : {}); save(); }
+    } catch (e) {}
+  }
+  render();
+}
+// ---- R-41 on every trip, however it was made (this form, a description, a photo, a day added by hand) ----
+// Every detail a day's plan depends on that the traveler hasn't given: a time filled in with a typical one (estimated)
+// or left empty, an airport, station or pier the day has to ask about, a hotel not given. Listed on the Trip page, each
+// one tap from the field that takes it, with how many days are left before the trip, until all are in.
+function tripNeeds() {
+  const out = [], today = typeof todayISO === "function" ? todayISO() : "";
+  const seenHotel = {};
+  trip.days.forEach((d, i) => {
+    if (!d || d.type === "sea" || noShore(d) || (today && d.date && d.date < today)) return;
+    const place = placeLabel(d) || bareName(d.destination || "") || "this day", when = d.date ? ` (${fmtDow(d.date)} ${fmtDate(d.date)})` : "", r = tsRide(d.mode);
+    const add = (f, what) => out.push({ i, f, what: what + when });
+    if (d.type === "arrival" && (d.estimated || !d.time)) add("f-time", d.mode === "ship" ? `When you're off the ship in ${place}` : r ? `When your ${r} ${d.mode === "flight" ? "lands" : "arrives"} in ${place}` : `When you arrive in ${place}`);
+    if (d.type === "departure" && (d.estimated || !d.time)) add("f-time", r ? `When your ${r} leaves ${place}` : `When you leave ${place}`);
+    if (d.type === "departure" && !d.estimated && tsSmall(d.time) && d.nightDep !== "morning" && d.nightDep !== "night") add("f-time", `Whether your ${d.time} ${r || "departure"} from ${place} is early in the morning or late at night`);
+    if (d.type === "embark" && (d.estimated || !d.allAboard)) add("f-aboard", `All-aboard time on boarding day in ${place}`);
+    if (d.type === "port" && (d.estimated || !d.portArrive || !d.allAboard)) add("f-parr", `The ship's arrival and all-aboard times in ${place}`);
+    const city = cityFor(d), kind = askKind(d);
+    if (city && kind && (d.type !== "arrival" || d.mode !== "ship")) { let P = null; try { P = dayPoint(d, city); } catch (e) {}
+      if (!P || unsurePoint(P) || P.notGate || (P.ask && P.ask.length > 1)) add("f-point", kind === "cruise" ? `Which pier the ship docks at in ${place}` : `Which ${kind} you ${d.type === "arrival" ? "arrive at in" : "leave from in"} ${place}`); }
+    const stay = d.type === "land" || (d.type === "arrival" && !throughTo(d) && !(d.mode === "ship" && i === trip.days.length - 1)) || (d.type === "departure" && !throughFrom(d));
+    const k = cityKeyFor(d) || keyOf(d.destination || "");
+    if (stay && k && !seenHotel[k]) { seenHotel[k] = 1; const L = trip.lodging && trip.lodging[k];
+      if (!L || (L.idx === "custom" && !(L.ll && KEngine.fin(L.ll.lat)))) out.push({ i, f: "f-lodging", what: L && L.idx === "custom" && L.name ? `Where ${L.name} is in ${place} (not found on the map yet)` : `Your hotel in ${place}` }); }
+  });
+  return out;
+}
+function tripNeedsHTML() {
+  if (!trip || trip.sample) return ""; const n = tripNeeds(); if (!n.length) return "";
+  const first = trip.days.map(d => d.date).filter(Boolean).sort()[0], today = typeof todayISO === "function" ? todayISO() : "";
+  const left = first && today ? Math.round((Date.parse(first) - Date.parse(today)) / 864e5) : null;
+  const when = left == null || left < 0 ? "" : left === 0 ? " Your trip starts today." : left === 1 ? " Your trip starts tomorrow." : ` Your trip starts in ${left} days.`;
+  return `<div class="card tsneed tripneeds" role="status"><h3>Still needed for your plan: ${n.length}</h3>
+    <p class="lede small">Each day is planned around these details from your bookings.${when} Until they're in, the days they affect say what's missing, and a time you haven't given is never shown as confirmed.</p>
+    <ul class="tips tsneedlist">${n.slice(0, 12).map(x => `<li><button type="button" class="linkbtn" data-act="needgo" data-i="${x.i}" data-f="${esc(x.f)}">${esc(x.what)}</button></li>`).join("")}</ul>
+    ${n.length > 12 ? `<p class="hint">And ${n.length - 12} more, listed here as you add these.</p>` : ""}</div>`;
+}
+// What a day says when a time on it isn't from the traveler's booking yet, in the words of that day (R-18: a flight day
+// never talks about port times).
+function estLine(d) {
+  if (!d || !d.estimated || d.type === "sea" || d.type === "land") return "";
+  if (d.type === "port") return "These port times are estimated, not from your booking yet: typical times, not confirmed. Check them against your cruise documents and add the real ones on the Trip page.";
+  if (d.type === "embark") return "The all-aboard time is estimated, not from your booking yet: a typical time, not confirmed. Check it against your cruise documents and add it on the Trip page.";
+  if (d.type === "arrival" && d.mode === "ship") return "The time you're off the ship is estimated, not from your booking yet. Check it against your cruise documents and add it on the Trip page.";
+  const r = tsRide(d.mode); return `Your ${r || "travel"} time isn't from your booking yet. Add it on the Trip page.`;
+}
+if (typeof window !== "undefined") window.__kairouteTripNeeds = () => tripNeeds().map(x => x.what);
 // The days, by the same rules for every trip.
 function tsDays(legs) {
   const days = [], hotels = [], est = t => !t;
+  // The airport or station the traveler named for this ride (found on the map once the city's guide is in, tsGates), and
+  // their answer for a small-hours departure (the day's nightDep, R-01).
+  const gw = (o, gate, night) => { if (bareName(gate || "") && TS_GATE[o.mode]) o.gateWant = String(gate).trim();
+    if ((night === "morning" || night === "night") && o.time && tsSmall(o.time)) o.nightDep = night; return o; };
   const add = o => days.push(newDay(Object.assign({ hours: o.type === "arrival" ? 6 : 8 }, o)));
   legs.forEach((l, i) => {
     const prev = legs[i - 1], next = legs[i + 1], joinedIn = tsJoined(prev, l), joinedOut = next && tsJoined(l, next);
     if (l.k === "stay") {
-      if (!joinedIn) add({ date: l.date, destination: l.place.trim(), type: "arrival", mode: l.inBy, time: l.inAt || (l.inBy === "flight" ? "10:30" : "11:00"), estimated: est(l.inAt) });
+      if (!joinedIn) add(gw({ date: l.date, destination: l.place.trim(), type: "arrival", mode: l.inBy, time: l.inAt || (l.inBy === "flight" ? "10:30" : "11:00"), estimated: est(l.inAt) }, l.inGate));
       for (let k = 1; k < (+l.nights || 0); k++) add({ date: addDays(l.date, k), destination: l.place.trim(), type: "land" });
       const last = tsEnd(l);
       if (!joinedOut && (+l.nights || 0) >= 0) {
         const by = next ? next.inBy : l.homeBy, at = next ? next.leaveAt : l.homeAt;
-        if (next || l.homeAt || (+l.nights || 0) > 0) add({ date: last, destination: l.place.trim(), type: "departure", mode: by, time: at || (by === "flight" ? "15:00" : "12:00"), estimated: est(at) });
+        if (next || l.homeAt || (+l.nights || 0) > 0) add(gw({ date: last, destination: l.place.trim(), type: "departure", mode: by, time: at || (by === "flight" ? "15:00" : "12:00"), estimated: est(at) }, next ? next.fromGate : l.homeGate, next ? next.leaveNight : l.homeNight));
       }
       if (bareName(l.hotel)) hotels.push({ place: l.place.trim(), name: l.hotel.trim() });
     } else {
-      if (!joinedIn) add({ date: l.date, destination: l.board.trim(), type: "arrival", mode: l.inBy, time: l.inAt || "10:30", estimated: est(l.inAt) });
+      if (!joinedIn) add(gw({ date: l.date, destination: l.board.trim(), type: "arrival", mode: l.inBy, time: l.inAt || "10:30", estimated: est(l.inAt) }, l.inGate));
       add({ date: l.date, destination: l.board.trim(), type: "embark", allAboard: l.aboard || "17:00", estimated: est(l.aboard) });
       const ports = l.ports.filter(p => p.date && bareName(p.place)).sort((a, b) => a.date.localeCompare(b.date));
       for (let dt = addDays(l.date, 1); dt < l.endDate; dt = addDays(dt, 1)) {
@@ -22045,27 +22522,45 @@ function tsDays(legs) {
       }
       add({ date: l.endDate, destination: l.end.trim(), type: "arrival", mode: "ship", time: l.off || "07:30", estimated: est(l.off) });
       if (!joinedOut && (next || l.homeAt)) { const by = next ? next.inBy : l.homeBy, at = next ? next.leaveAt : l.homeAt;
-        add({ date: l.endDate, destination: l.end.trim(), type: "departure", mode: by, time: at || (by === "flight" ? "15:00" : "12:00"), estimated: est(at) }); }
+        add(gw({ date: l.endDate, destination: l.end.trim(), type: "departure", mode: by, time: at || (by === "flight" ? "15:00" : "12:00"), estimated: est(at) }, next ? next.fromGate : l.homeGate, next ? next.leaveNight : l.homeNight)); }
     }
   });
   const ship = legs.find(l => l.k === "cruise" && bareName(l.ship));
   return { days, hotels, ship: ship ? { line: "", name: ship.ship.trim() } : null };
 }
 // ---- The form ----
-const tsTimeF = (id, label, v, hint) => `<div class="field"><label for="${id}">${label}</label><input type="time" id="${id}" data-tsf="${id}" value="${esc(v || "")}">${hint ? `<span class="hint">${hint}</span>` : ""}</div>`;
+// A field the plan needs and the traveler left empty is marked once they've been asked (wiz.missAsk), so it's easy to find.
+const tsNeedMark = (id, v) => wiz && wiz.missAsk && !String(v || "").trim() ? ` aria-invalid="true"` : "";
+const tsTimeF = (id, label, v, hint) => `<div class="field"><label for="${id}">${label}</label><input type="time" id="${id}" data-tsf="${id}" value="${esc(v || "")}"${tsNeedMark(id, v)}>${hint ? `<span class="hint">${hint}</span>` : ""}</div>`;
+// Which airport or station, typed as the booking shows it; the city's own list is offered as they type.
+function tsGateF(id, label, v, place, mode) {
+  const kind = TS_GATE[mode]; if (!kind) return "";
+  const names = tsGateNames(place, kind);
+  return `<div class="field"><label for="${id}">${label}</label><input type="text" id="${id}" data-tsf="${id}" ${names.length ? `list="${id}-l"` : ""} value="${esc(v || "")}" placeholder="${kind === "airport" ? "Name or code from your booking" : "Station name on your ticket"}" autocomplete="off"${tsNeedMark(id, v)}>${names.length ? `<datalist id="${id}-l">${names.map(n => `<option value="${esc(n)}">`).join("")}</datalist>` : ""}</div>`;
+}
+// A leaving time in the small hours: that morning, or late that night after midnight (asked as it's typed, R-01).
+function tsNightF(id, key, i, t, date, v) {
+  if (!tsSmall(t)) return "";
+  const day = date ? `${fmtDow(date)} ${fmtDate(date)}` : "that day";
+  return `<div class="field"><span class="lbl" id="${id}">${esc(t)} is in the small hours. Which is it?</span><div class="seg" role="group" aria-labelledby="${id}"${wiz && wiz.missAsk && !v ? ` aria-invalid="true"` : ""}><button type="button" data-ts="set" data-i="${i}" data-key="${key}" data-v="morning" aria-pressed="${v === "morning"}">Early on ${esc(day)}</button><button type="button" data-ts="set" data-i="${i}" data-key="${key}" data-v="night" aria-pressed="${v === "night"}">Late on ${esc(day)}, after midnight</button></div></div>`;
+}
 const tsSeg = (i, key, v, list) => `<div class="seg" role="group" aria-label="How you travel">${list.map(([k, l]) => `<button type="button" data-ts="set" data-i="${i}" data-key="${key}" data-v="${k}" aria-pressed="${v === k}">${l}</button>`).join("")}</div>`;
 function tsGetHere(l, i, legs) {
   const prev = legs[i - 1]; if (tsJoined(prev, l)) return "";
-  const from = prev ? tsWhere(prev) : "", word = l.k === "cruise" ? "Getting to the ship" : "Getting there";
+  const from = prev ? tsWhere(prev) : "", word = l.k === "cruise" ? "Getting to the ship" : "Getting there", here = l.k === "cruise" ? l.board : l.place;
+  const kind = TS_GATE[l.inBy], K = kind ? kind[0].toUpperCase() + kind.slice(1) : "";
   return `<div class="field"><span class="lbl">${word}${l.k === "cruise" ? " (if you arrive the same day)" : ""}</span>${tsSeg(i, "inBy", l.inBy, TS_MOVE)}</div>
-    <div class="row2">${prev && from ? tsTimeF(`ts-${i}-leaveAt`, `Leave ${esc(bareName(from))} at`, l.leaveAt) : ""}${tsTimeF(`ts-${i}-inAt`, `Arrive in ${esc(bareName(l.k === "cruise" ? l.board : l.place) || "town")} at`, l.inAt, l.inAt ? "" : "Leave empty if you don't know yet.")}</div>`;
+    ${prev && from ? `<div class="row2">${tsTimeF(`ts-${i}-leaveAt`, `Leave ${esc(bareName(from))} at`, l.leaveAt)}${tsGateF(`ts-${i}-fromGate`, `${K} in ${esc(bareName(from))}`, l.fromGate, from, l.inBy)}</div>${tsNightF(`ts-${i}-leaveNight`, "leaveNight", i, l.leaveAt, tsEnd(prev), l.leaveNight)}` : ""}
+    <div class="row2">${tsTimeF(`ts-${i}-inAt`, `Arrive in ${esc(bareName(here) || "town")} at`, l.inAt)}${tsGateF(`ts-${i}-inGate`, `${K} in ${esc(bareName(here) || "town")}`, l.inGate, here, l.inBy)}</div>`;
 }
 // How the trip ends is asked once, after the last stop and the buttons that add more (outside review, Nov 20: it was
 // asked on the first stop, before the traveler had said where else they were going).
 function tsGoHome(l, i, legs) {
   if (!l || i !== legs.length - 1) return "";
-  return `<div class="tsleg tshome"><div class="field"><span class="lbl">Going home from ${esc(bareName(tsWhere(l)) || "here")}</span>${tsSeg(i, "homeBy", l.homeBy, TS_MOVE)}</div>
-    <div class="row2">${tsTimeF(`ts-${i}-homeAt`, `${l.homeBy === "flight" ? "Flight" : l.homeBy === "train" ? "Train" : l.homeBy === "ferry" ? "Ferry" : "Leave"} at`, l.homeAt)}</div></div>`;
+  const at = tsWhere(l), kind = TS_GATE[l.homeBy];
+  return `<div class="tsleg tshome"><div class="field"><span class="lbl">Going home from ${esc(bareName(at) || "here")}</span>${tsSeg(i, "homeBy", l.homeBy, TS_MOVE)}</div>
+    <div class="row2">${tsTimeF(`ts-${i}-homeAt`, `${l.homeBy === "flight" ? "Flight" : l.homeBy === "train" ? "Train" : l.homeBy === "ferry" ? "Ferry" : "Leave"} at`, l.homeAt)}${tsGateF(`ts-${i}-homeGate`, `${kind ? kind[0].toUpperCase() + kind.slice(1) : ""} in ${esc(bareName(at) || "town")}`, l.homeGate, at, l.homeBy)}</div>
+    ${tsNightF(`ts-${i}-homeNight`, "homeNight", i, l.homeAt, tsEnd(l), l.homeNight)}</div>`;
 }
 function tsLegHTML(l, i, legs) {
   const head = `<div class="tshead"><span class="eyebrow">Stop ${i + 1} · ${l.k === "stay" ? "City stay" : "Cruise"}</span>${legs.length > 1 ? `<button type="button" class="linkbtn" data-ts="del" data-i="${i}" aria-label="Remove stop ${i + 1}">Remove</button>` : ""}</div>`;
@@ -22073,7 +22568,7 @@ function tsLegHTML(l, i, legs) {
     <div class="row2"><div class="field"><label for="ts-${i}-place">City</label><input type="text" id="ts-${i}-place" data-tsf="ts-${i}-place" list="ts-cities" value="${esc(l.place)}" placeholder="e.g. Athens, Lisbon, Nashville" autocomplete="off"></div>
       <div class="field"><label for="ts-${i}-date">Arrive on</label><input type="date" id="ts-${i}-date" data-tsf="ts-${i}-date" value="${esc(l.date)}"></div></div>
     <div class="row2"><div class="field"><label for="ts-${i}-nights">Nights</label><input type="number" id="ts-${i}-nights" data-tsf="ts-${i}-nights" min="0" max="60" value="${esc(String(l.nights))}"></div>
-      <div class="field"><label for="ts-${i}-hotel">Hotel (optional)</label><input type="text" id="ts-${i}-hotel" data-tsf="ts-${i}-hotel" value="${esc(l.hotel)}" placeholder="Name or address"></div></div>
+      <div class="field"><label for="ts-${i}-hotel">Hotel</label><input type="text" id="ts-${i}-hotel" data-tsf="ts-${i}-hotel" value="${esc(l.hotel)}" placeholder="Name or address"${+l.nights > 0 ? tsNeedMark("", l.hotel) : ""}></div></div>
     ${tsGetHere(l, i, legs)}</div>`;
   const ports = l.ports.map((p, j) => `<div class="tsport" data-port="${j}">
       <div class="row2"><div class="field"><label for="ts-${i}-p${j}-date">Date</label><input type="date" id="ts-${i}-p${j}-date" data-tsf="ts-${i}-p${j}-date" value="${esc(p.date)}"></div>
@@ -22086,11 +22581,11 @@ function tsLegHTML(l, i, legs) {
       <div class="field"><label for="ts-${i}-ship">Ship (optional)</label><input type="text" id="ts-${i}-ship" data-tsf="ts-${i}-ship" value="${esc(l.ship)}" placeholder="e.g. Sun Princess"></div></div>
     <div class="row2"><div class="field"><label for="ts-${i}-date">Boarding day</label><input type="date" id="ts-${i}-date" data-tsf="ts-${i}-date" value="${esc(l.date)}"></div>${tsTimeF(`ts-${i}-aboard`, "All aboard", l.aboard)}</div>
     ${tsGetHere(l, i, legs)}
-    <div class="field"><span class="lbl">Ports of call</span><span class="hint">In order, from your cruise booking. Days with no port are added as sea days.</span></div>
+    <div class="field"><span class="lbl">Ports of call</span><span class="hint">In order, with their times, from your cruise booking. Days with no port are added as sea days.</span></div>
     ${ports}<div class="actions"><button type="button" class="btn ghost small" data-ts="addport" data-i="${i}">+ Add a port</button></div>
     <div class="row2"><div class="field"><label for="ts-${i}-end">Cruise ends in</label><input type="text" id="ts-${i}-end" data-tsf="ts-${i}-end" list="ts-cities" value="${esc(l.end)}" placeholder="e.g. Barcelona" autocomplete="off"></div>
       <div class="field"><label for="ts-${i}-endDate">On</label><input type="date" id="ts-${i}-endDate" data-tsf="ts-${i}-endDate" value="${esc(l.endDate)}"></div></div>
-    <div class="row2">${tsTimeF(`ts-${i}-off`, "Off the ship at", l.off, l.off ? "" : "Usually 7:00 to 9:00. Leave empty if you don't know.")}</div>
+    <div class="row2">${tsTimeF(`ts-${i}-off`, "Off the ship at", l.off, l.off ? "" : "On your cruise documents (often 7:00 to 9:00).")}</div>
 </div>`;
 }
 function tsKnownPlaces() {
@@ -22103,13 +22598,15 @@ function tsPreview(legs) {
   const { days } = tsDays(legs); if (!days.length) return "";
   const n = new Set(days.map(d => d.date)).size, ports = days.filter(d => d.type === "port").length, est = days.some(d => d.estimated && d.type !== "sea");
   return `<details class="more tsprev"><summary>Your days: ${n} day${n === 1 ? "" : "s"}${ports ? ` · ${ports} port${ports === 1 ? "" : "s"}` : ""}</summary>
-    <ul class="tips">${days.map(d => `<li><span><b>${esc(fmtDow(d.date))} ${esc(fmtDate(d.date))}</b> · ${esc(typeInfo(d.type).short)}${d.type === "sea" ? "" : " · " + esc(d.destination)}${d.type === "port" ? ` · ${esc(d.portArrive)}–${esc(d.allAboard)}` : d.type === "embark" ? ` · all aboard ${esc(d.allAboard)}` : d.type === "arrival" || d.type === "departure" ? ` · ${esc(MODES[d.mode].label.toLowerCase())} ${esc(d.time)}` : ""}${d.estimated && d.type !== "sea" ? " (time estimated)" : ""}</span></li>`).join("")}</ul>
-    ${est ? `<p class="hint">Times you left empty are typical times, marked as estimated on the day. Add the real ones from your booking any time.</p>` : ""}</details>`;
+    <ul class="tips">${days.map(d => { const g = d.estimated && d.type !== "sea", nt = " · time not given yet";
+      return `<li><span><b>${esc(fmtDow(d.date))} ${esc(fmtDate(d.date))}</b> · ${esc(typeInfo(d.type).short)}${d.type === "sea" ? "" : " · " + esc(d.destination)}${d.type === "port" ? (g ? " · times not given yet" : ` · ${esc(d.portArrive)}–${esc(d.allAboard)}`) : d.type === "embark" ? (g ? " · all aboard not given yet" : ` · all aboard ${esc(d.allAboard)}`) : d.type === "arrival" || d.type === "departure" ? ` · ${esc(MODES[d.mode].label.toLowerCase())}${g ? nt : " " + esc(d.time)}` : ""}</span></li>`; }).join("")}</ul>
+    ${est ? `<p class="hint">A time not given yet is never shown as confirmed. Your Trip page lists it until you add it from your booking.</p>` : ""}</details>`;
 }
 function tsHTML(w) {
   if (!w.legs) w.legs = [tsStay()];
   return `<datalist id="ts-cities">${tsKnownPlaces().map(n => `<option value="${esc(n)}">`).join("")}</datalist>
-    <p class="lede">Add each place in order, the way it's booked. Each new stop starts where the last one ends.</p>
+    ${tsNeedHTML(w)}
+    <p class="lede">Add each place in order, the way it's booked, with the times, airports, stations and hotels from your bookings. Each new stop starts where the last one ends.</p>
     ${w.legs.map((l, i) => tsLegHTML(l, i, w.legs)).join("")}
     <div class="actions"><button type="button" class="btn ghost small" data-ts="addstay">+ Add a city stay</button><button type="button" class="btn ghost small" data-ts="addcruise">+ Add a cruise</button></div>
     ${tsGoHome(w.legs[w.legs.length - 1], w.legs.length - 1, w.legs)}
@@ -22128,7 +22625,8 @@ function tsRead() {
 }
 function tsBuild() {
   tsRead(); tsFill(wiz.legs);
-  const err = tsCheck(wiz.legs); if (err) { aiError = err; render(); toTop(); return; }
+  const err = tsCheck(wiz.legs); if (err) { aiError = err; wiz.step = 0; render(); toTop(); return; }
+  if (tsAskNeeds("build")) return;
   const { days, hotels, ship } = tsDays(wiz.legs);
   mergeBoarding(days); sequenceDates(days);
   const prefs = { pace: wiz.pace, walk: wiz.walk, interests: wiz.interests.slice(), travelers: wiz.travelers, access: wiz.access, party: wiz.party, lang: wiz.lang, voice: wiz.voice };
@@ -22139,6 +22637,7 @@ function tsBuild() {
   wiz = null; busy = null; aiError = ""; save(); view = "trip"; render(); toTop();
   (async () => {
     await buildAllGuides();
+    await tsGates();
     // Each hotel the traveler named is found on the map, so the day starts and ends at the real door.
     for (const h of hotels) {
       const d = trip.days.find(x => tsSame(x.destination, h.place)); if (!d) continue;
@@ -22153,6 +22652,9 @@ document.addEventListener("click", e => {
   const b = e.target.closest && e.target.closest("[data-ts]"); if (!b || !wiz) return;
   e.preventDefault(); tsRead(); if (!wiz.legs) wiz.legs = [tsStay()];
   const a = b.dataset.ts, i = +b.dataset.i, L = wiz.legs;
+  // The list of details still empty: one tap goes to the field; "I don't know yet" goes on with them left empty.
+  if (a === "needgo") { const f = b.dataset.f, el = f && (document.getElementById(f) || document.querySelector(`[data-tsf="${f}"]`)); if (el) { el.scrollIntoView({ block: "center" }); if (el.focus) el.focus({ preventScroll: true }); } return; }
+  if (a === "needok") { const next = wiz.missAsk; wiz.unknownOk = true; wiz.missAsk = ""; if (next === "more") { aiError = ""; wiz.step = 1; render(); toTop(); } else tsBuild(); return; }
   if (a === "mode") { wiz.mode = b.dataset.v; aiError = ""; }
   // A trip that starts with a cruise: the empty city stay the form opens with is replaced, not left as a "Stop 1: type
   // the city" the traveler has to find and remove (Bahamas test trip, Nov 17).
@@ -22166,17 +22668,20 @@ document.addEventListener("click", e => {
   if (a === "addstay" || a === "addcruise") { const el = document.querySelector(`[data-leg="${L.length - 1}"] input[type=text]`); if (el) { el.focus({ preventScroll: true }); el.scrollIntoView({ block: "center" }); } }
 });
 // Typing keeps the trip (a redraw never loses it); a finished field updates the day list below the form.
-document.addEventListener("input", e => { if (e.target && e.target.dataset && e.target.dataset.tsf) tsRead(); });
+document.addEventListener("input", e => { if (e.target && e.target.dataset && e.target.dataset.tsf) { tsRead(); if (String(e.target.value || "").trim()) e.target.removeAttribute("aria-invalid"); } });
 document.addEventListener("change", e => {
   if (!(e.target && e.target.dataset && e.target.dataset.tsf) || !wiz || !wiz.legs) return;
   tsRead(); const f = e.target.dataset.tsf;
   // A date picked for a stop moves the empty dates after it with it.
   if (/-(date|nights|endDate)$/.test(f)) { tsFill(wiz.legs); wiz.legs.forEach((l, i) => { if (i && l.k === "stay" && !l.place && wiz.legs[i - 1].k === "cruise") l.place = wiz.legs[i - 1].end; }); }
+  // A leaving time typed in the small hours asks, right there, whether it's that morning or that night (R-01).
+  // Only when the question has to appear or go: nothing else on the page moves.
+  if (/-(leaveAt|homeAt)$/.test(f) && !!document.getElementById(f.replace(/At$/, "Night")) !== tsSmall(e.target.value)) { const y = window.scrollY; render(); window.scrollTo(0, y); return; }
   const p = document.getElementById("tsPrev"); if (p) p.innerHTML = tsPreview(wiz.legs);
 });
 if (typeof window !== "undefined") {
   // Test hook: the days a list of stops makes (the same rules the form uses).
-  window.__kairouteTripSteps = legs => { const L = legs.map(l => l.k === "cruise" ? tsCruise(Object.assign({}, l, { ports: (l.ports || []).map(tsPort) })) : tsStay(l)); tsFill(L); const err = tsCheck(L); if (err) return { err }; const r = tsDays(L); mergeBoarding(r.days); sequenceDates(r.days); return { days: r.days.map(d => [d.date, d.type, d.destination, d.mode, d.time || "", d.type === "port" ? d.portArrive + "-" + d.allAboard : d.type === "embark" ? d.allAboard : "", d.estimated ? "est" : ""].join("|")), ship: r.ship }; };
+  window.__kairouteTripSteps = legs => { const L = legs.map(l => l.k === "cruise" ? tsCruise(Object.assign({}, l, { ports: (l.ports || []).map(tsPort) })) : tsStay(l)); tsFill(L); const err = tsCheck(L); if (err) return { err }; const needs = tsNeeds(L).map(x => x.f + " " + x.what); const r = tsDays(L); mergeBoarding(r.days); sequenceDates(r.days); return { needs, meta: r.days.map(d => [d.date, d.type, d.gateWant || "", d.nightDep || ""].join("|")), days: r.days.map(d => [d.date, d.type, d.destination, d.mode, d.time || "", d.type === "port" ? d.portArrive + "-" + d.allAboard : d.type === "embark" ? d.allAboard : "", d.estimated ? "est" : ""].join("|")), ship: r.ship }; };
 }
 // ---------- Days at sea: get ready for the next ports ----------
 // A day at sea (or a port day spent on board) is a paid trip day too, so it gets its own page instead of an empty
@@ -22225,7 +22730,7 @@ function voyChecks(o, plan) {
   if (plan.over) out.push(`This plan runs ${dur(plan.end - plan.endBy)} past ${fmt(plan.endBy)}. Take out a stop.`);
   if ((plan.dropped || []).length) out.push(`Didn't fit: ${plan.dropped.map(s => s.name).join(", ")}.`);
   if ((plan.closedToday || []).length) out.push(`Closed that day: ${plan.closedToday.map(s => s.name).join(", ")}.`);
-  if (o.estimated) out.push("These port times are estimated. Check them against your cruise documents.");
+  if (estLine(o)) out.push(estLine(o));
   return out;
 }
 // The back-by time is the day's own (dayFacts), the one its Day plan, countdown and timeline say: never the time the
@@ -22730,6 +23235,8 @@ function engineBucket(withOld) {
       thru: thru ? { mode: thru.mode, time: thru.time || "", point: pt(A), guess: !!thru.estimated || !thru.time } : null,
       // An arrival time the traveler never gave (the trip builder fills one in): asked, never planned on (Round 1: "Flight in at 10:30 am" invented).
       timeGuess: d.type === "arrival" && (!!d.estimated || !d.time),
+      // The same for a leaving flight, train, ferry or car (R-41, Nov 27: a made-up 3:00 pm flight gave a real-looking "leave by").
+      leaveGuess: d.type === "departure" && (!!d.estimated || !d.time),
       // The start place's note, when it names a way to ride (a port's sea bus or shuttle): offered as a choice for that ride.
       // The trip's last day, and whether the hotel is only the guide's guess (the traveler named none here).
       lastDay: i === trip.days.length - 1, stayGuess: !((trip.lodging[cityKeyFor(d) || keyOf(d.destination)] || {}).idx === "custom"),
@@ -22838,6 +23345,9 @@ if (typeof window !== "undefined" && window.ENGINE2 && window.KEngine) (function
     const was = planDate; let r = null; transitPeek = true;
     try { for (const dt of tripDates().concat([null])) { planDate = dt; r = transitFor(a, b); if (r && r.length) break; } } finally { transitPeek = false; planDate = was; }
     if (peekMemo.size > 50000) peekMemo.clear(); peekMemo.set(k, r); return r; };
+  // No answer at all yet for this ride on any of the trip's dates (an answer with no lines counts as an answer).
+  const noAnswer = (a, b) => { const was = planDate; let r = null; transitPeek = true;
+    try { for (const dt of tripDates().concat([null])) { planDate = dt; r = transitFor(a, b); if (r) break; } } finally { transitPeek = false; planDate = was; } return !r; };
   const answerOf = (a, b) => { const r = peek(a, b); return r && r.map(o => Object.assign({}, o, { id: rideId(o), kind: rideKind(o) })); };
   const askRides = ep => { (ep && ep.items || []).forEach(x => { if (x.t === "ride" && x.from && x.to && x.mode !== "walk" && x.mode !== "boat" && x.mode !== "lift") { try { transitFor(x.from, x.to); } catch (e) {} } }); };
   // R-33: every walk and taxi the plans take is asked for its real route once (see askRouteTimes in main.js).
@@ -22961,6 +23471,23 @@ if (typeof window !== "undefined" && window.ENGINE2 && window.KEngine) (function
     memo = { k: synced ? keyNow() : k, ik, used, plans, bucket }; recent.set(memo.k, memo); if (recent.size > 8) recent.delete(recent.keys().next().value); return memo;
   }
   window.__kairouteEngine2 = () => JSON.parse(JSON.stringify(tripPlans().plans));
+  // R-40 (Get there): the ways from any point to any point on day i, from the plans' own ride layer: the same walks
+  // (street routes, climbs), lines, timetables, piers and island outlines the plans use, with no ride choice of the
+  // traveler's (a choice belongs to a planned ride). A place on an island the map's paths don't reach is across the water,
+  // as in the plans (R-06); a guide sight is read as the plans read it (its travel note, its island).
+  window.__kairouteRideNow = (i, a, b) => {
+    const d = trip.days[i]; if (!d || !a || !b || !E.hasPos(a) || !E.hasPos(b)) return null;
+    const bucket = tripPlans().bucket || {}, city = cityFor(d), key = city ? keyOf(city.city) : "", bc = (bucket.cities || {})[key] || {};
+    const P = (placesWithIsles(bucket) || {})[key], I = P && P.islands;
+    const asPlanned = p => { const x = p.id != null ? (bc.sites || []).concat(bc.farther || []).find(s => String(s.id) === String(p.id)) : null;
+      const q = Object.assign({}, x || {}, { lat: +p.lat, lng: +p.lng, name: p.name }, p.backToShip ? { backToShip: true } : {}, p.deadline ? { deadline: true } : {});
+      if (!q.acrossWater && I && Array.isArray(I.shapes)) { const sh = E.islandAt(I.shapes, q); if (sh && sh.id !== I.centreShape && sh.walk === false) q.acrossWater = sh.name || true; }
+      return q; };
+    const answers = (x, y) => { const was = planDate; planDate = d.date || null; try { const r = transitFor(x, y); return r && r.map(o => Object.assign({}, o, { id: rideId(o), kind: rideKind(o) })); } finally { planDate = was; } };
+    const routes = (x, y) => typeof routeTimeOf === "function" ? routeTimeOf(x, y) : null; if (typeof routeKnown === "function") routes.known = routeKnown;
+    const tr = E.makeTravel(bucket.prefs || {}, null, bucket.legs, bucket.transit, answers, E.piersOf(bucket), routes);
+    return tr.estimate(asPlanned(a), asPlanned(b));
+  };
   window.__kairoutePackedBuy = packedBuy; window.__kairoutePackedWords = r => packedWords(r);
   // For the phone test: every pier a boat may leave from, and whether a place is reached only by boat.
   window.__kairoutePiers = () => E.piersOf(tripPlans().bucket || {});
@@ -22986,7 +23513,7 @@ if (typeof window !== "undefined" && window.ENGINE2 && window.KEngine) (function
   function toApp(d, city, ep) {
     const w = dayWindow(d, city); if (w.error) return w;
     if (!ep) return { error: "The new engine has no plan for this day." };
-    if (ep.error) return Object.assign({ error: ep.error }, ep.askNight ? { askNight: true } : {});
+    if (ep.error) return Object.assign({ error: ep.error }, ep.askNight ? { askNight: true } : {}, ep.askArrive ? { askArrive: true } : {}, ep.askLeaveTime ? { askLeaveTime: true } : {});
     const sites = (city.sites || []).concat(city.farther || []), byId = new Map(sites.map(s => [String(s.id), s]));
     const items = [], stops = [], meals = [], evening = [];
     const at = (x, name, extra) => Object.assign({ name: name || x.name || "", lat: x.lat, lng: x.lng }, extra || {});
@@ -22997,6 +23524,8 @@ if (typeof window !== "undefined" && window.ENGINE2 && window.KEngine) (function
         const leg = { mode: MODE[x.mode] || "ride", kind: UIKIND[x.kind] || (x.mode === "walk" ? "walk" : "car"), how: x.how || (x.mode === "walk" ? "Walk" : "Taxi or car"), km: x.km || 0, min: x.min || 0 };
         if (x.pierName) leg.pier = x.pierName; if (x.from) leg.from = x.from; if (x.to) leg.to = x.to; if (x.options) leg.options = x.options;
         if (x.ans) leg.transit = x.ans; if (x.steps) leg.steps = x.steps; if (x.note) leg.note = x.note; if (x.lost) leg.lost = x.lost; if (x.slack) leg.slack = x.slack; if (x.swapWhy) leg.swapWhy = x.swapWhy; if (x.ownBoat) leg.ownBoat = x.ownBoat;
+        // R-18: a ride by road because no lines have come in yet (the lookup not answered, the helper busy, no signal) says so.
+        if (leg.kind === "car" && x.from && x.to && !x.ans && (x.options || []).every(o => !o.ans && ["car", "walk"].includes(UIKIND[o.kind] || "car"))) { const s = transitAsking(x.from, x.to); if (s && noAnswer(x.from, x.to)) leg.asking = s; }
         // Every way for this ride is a choice on the plan (the ride chips): a tap saves it as the traveler's own choice for
         // this ride, and the engine plans with it.
         if (x.from && x.to && x.options && x.options.length > 1) {
@@ -23061,4 +23590,4 @@ render();
 
 </script>
 <script>if ("serviceWorker" in navigator) addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));</script>
-<script>(function(){var B="dc6e58ab-1795830666";function ep(v){return +String(v).split("-").pop()||0}function busy(){return document.body&&document.body.classList.contains("touring-on")}function chk(){if(location.protocol!=="https:"||document.visibilityState!=="visible")return;fetch("version.txt",{cache:"no-store"}).then(function(r){return r.ok?r.text():""}).then(function(t){t=t.trim();if(!t||t===B||ep(t)<=ep(B)||busy())return;var k="kairoute.reloadedTo",s="";try{s=sessionStorage.getItem(k)||"";sessionStorage.setItem(k,t)}catch(e){}if(s===t){var u=new URL(location.href);if(u.searchParams.get("v")===t)return;u.searchParams.set("v",t);location.replace(u.href)}else location.reload()}).catch(function(){})}addEventListener("load",chk);addEventListener("pageshow",function(e){if(e.persisted)chk()});addEventListener("focus",chk);document.addEventListener("visibilitychange",chk);setInterval(chk,300000);if(navigator.serviceWorker)navigator.serviceWorker.addEventListener("message",function(e){if(e.data&&e.data.type==="kairoute-sw"){try{e.source.postMessage({type:"kairoute-alive"})}catch(x){}chk()}})})();</script>
+<script>(function(){var B="0ea1dabd-1795852460";function ep(v){return +String(v).split("-").pop()||0}function busy(){return document.body&&document.body.classList.contains("touring-on")}function chk(){if(location.protocol!=="https:"||document.visibilityState!=="visible")return;fetch("version.txt",{cache:"no-store"}).then(function(r){return r.ok?r.text():""}).then(function(t){t=t.trim();if(!t||t===B||ep(t)<=ep(B)||busy())return;var k="kairoute.reloadedTo",s="";try{s=sessionStorage.getItem(k)||"";sessionStorage.setItem(k,t)}catch(e){}if(s===t){var u=new URL(location.href);if(u.searchParams.get("v")===t)return;u.searchParams.set("v",t);location.replace(u.href)}else location.reload()}).catch(function(){})}addEventListener("load",chk);addEventListener("pageshow",function(e){if(e.persisted)chk()});addEventListener("focus",chk);document.addEventListener("visibilitychange",chk);setInterval(chk,300000);if(navigator.serviceWorker)navigator.serviceWorker.addEventListener("message",function(e){if(e.data&&e.data.type==="kairoute-sw"){try{e.source.postMessage({type:"kairoute-alive"})}catch(x){}chk()}})})();</script>
